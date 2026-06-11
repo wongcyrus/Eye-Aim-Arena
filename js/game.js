@@ -391,9 +391,10 @@ class Game {
         this.canvas   = document.getElementById('gameCanvas');
         this.ctx      = this.canvas.getContext('2d');
         this.video    = document.getElementById('webcamVideo');
-        this.cameraPreview = document.getElementById('cameraPreview');
+        const cameraPreviewEl = document.getElementById('cameraPreview');
         this.cameraOverlay = document.getElementById('cameraOverlay');
         this.cameraCtx = this.cameraOverlay ? this.cameraOverlay.getContext('2d') : null;
+        this.cameraPreview = this.cameraCtx ? cameraPreviewEl : null;
 
         // Core systems
         this.tracker  = new EyeTracker();
@@ -737,7 +738,7 @@ class Game {
     }
 
     _drawCameraPreview() {
-        if (!this.cameraCtx || !this.cameraOverlay) return;
+        if (!this.cameraCtx) return;
         const ctx = this.cameraCtx;
         const W = this.cameraOverlay.width;
         const H = this.cameraOverlay.height;
@@ -755,7 +756,7 @@ class Game {
 
         if (this.tracker.faceDetected) {
             // Preview video is mirrored for natural selfie-view, so mirror X as well.
-            const px = (1 - this.tracker.rawGazeX) * W;
+            const px = (1 - this.tracker.rawGazeX) * W; // raw gaze is non-mirrored
             const py = this.tracker.rawGazeY * H;
 
             ctx.strokeStyle = 'rgba(0,229,255,0.9)';
