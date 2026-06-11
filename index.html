@@ -42,12 +42,34 @@
             <button id="timeAttackBtn">⏱️ &nbsp;Time Attack &nbsp;<small style="font-weight:400;opacity:.6">60 s sprint</small></button>
             <button id="survivalBtn">💀 &nbsp;Survival &nbsp;<small style="font-weight:400;opacity:.6">don't let targets escape</small></button>
             <button id="precisionBtn">🎯 &nbsp;Precision &nbsp;<small style="font-weight:400;opacity:.6">20 rounds, small targets</small></button>
+            <button id="settingsBtn">⚙️ &nbsp;Settings</button>
             <button id="calibrateBtn">🔧 &nbsp;Recalibrate eye tracking</button>
         </div>
 
         <div id="leaderboard">
             <h3>🏆 High Scores</h3>
             <div id="leaderboardList"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Settings screen ─────────────────────────────────── -->
+<div id="settingsScreen" class="overlay" style="display:none">
+    <div class="overlay-content">
+        <h2>⚙️ Settings</h2>
+        <div class="settings-group">
+            <label for="cameraSelect">Webcam</label>
+            <select id="cameraSelect"></select>
+            <p class="settings-hint">Select which camera to use for tracking.</p>
+        </div>
+        <div class="settings-group settings-toggles">
+            <label><input type="checkbox" id="invertXCheckbox"> Invert left / right</label>
+            <label><input type="checkbox" id="invertYCheckbox"> Invert up / down</label>
+            <p class="settings-hint">Use these if aiming moves in the opposite direction.</p>
+        </div>
+        <div class="gameover-buttons">
+            <button id="settingsSaveBtn">Save</button>
+            <button id="settingsCancelBtn">Cancel</button>
         </div>
     </div>
 </div>
