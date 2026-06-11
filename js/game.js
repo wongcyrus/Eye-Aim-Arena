@@ -393,7 +393,7 @@ class Game {
         this.video    = document.getElementById('webcamVideo');
         this.cameraPreview = document.getElementById('cameraPreview');
         this.cameraOverlay = document.getElementById('cameraOverlay');
-        this.cameraCtx = this.cameraOverlay?.getContext('2d') ?? null;
+        this.cameraCtx = this.cameraOverlay ? this.cameraOverlay.getContext('2d') : null;
 
         // Core systems
         this.tracker  = new EyeTracker();
@@ -754,6 +754,7 @@ class Game {
         }
 
         if (this.tracker.faceDetected) {
+            // Preview video is mirrored for natural selfie-view, so mirror X as well.
             const px = (1 - this.tracker.rawGazeX) * W;
             const py = this.tracker.rawGazeY * H;
 
@@ -945,9 +946,7 @@ class Game {
         const accuracy = this.shots > 0
             ? Math.round((this.hits / this.shots) * 100) : 100;
         document.getElementById('accuracyDisplay').textContent = `Acc: ${accuracy}%`;
-        document.getElementById('eyeStatus').textContent = this.tracker.faceDetected
-            ? `Eye: ${Math.round(this.gazeX * 100)}%, ${Math.round(this.gazeY * 100)}%`
-            : 'Eye: face not detected';
+        document.getElementById('eyeStatus').textContent = this._getEyeStatusText();
 
         if (this.mode === MODE.TIME_ATTACK) {
             const remaining = Math.max(0, Math.ceil((this.gameDuration - (performance.now() - this.startTime)) / 1000));
@@ -991,6 +990,11 @@ class Game {
     _setCameraPreviewVisible(visible) {
         if (!this.cameraPreview) return;
         this.cameraPreview.style.display = visible ? 'block' : 'none';
+    }
+
+    _getEyeStatusText() {
+        if (!this.tracker.faceDetected) return 'Eye: face not detected';
+        return `Eye: ${Math.round(this.gazeX * 100)}%, ${Math.round(this.gazeY * 100)}%`;
     }
 
     _showError(title, detail) {
