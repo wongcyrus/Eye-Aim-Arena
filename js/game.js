@@ -498,7 +498,7 @@ class Game {
         // Eye tracking (every frame)
         const tracking = this.tracker.processFrame(this.video, timestamp);
         if (tracking?.faceDetected) {
-            // Apply calibration transform
+            // Apply calibration transform (normalised coordinates in [0,1]).
             const cal = this.calibration.applyTransform(tracking.gazeX, tracking.gazeY);
             const mappedX = this.settings.invertX ? 1 - cal.x : cal.x;
             const mappedY = this.settings.invertY ? 1 - cal.y : cal.y;
@@ -1049,6 +1049,7 @@ class Game {
         });
 
         const [track] = stream.getVideoTracks();
+        // deviceId may be unavailable on older browsers/privacy-restricted contexts.
         const activeId = track?.getSettings?.().deviceId || deviceId || '';
         this.currentCameraDeviceId = activeId;
         this.settings.cameraDeviceId = activeId;
@@ -1214,7 +1215,7 @@ class Game {
             const invertYEl = document.getElementById('invertYCheckbox');
             const cameraSelectEl = document.getElementById('cameraSelect');
             if (!invertXEl || !invertYEl || !cameraSelectEl) {
-                this._showError('Settings UI not available.', 'Please reload the page and try again.');
+                this._showError('Settings controls unavailable.', 'Some settings controls are missing from the page. Please reload and try again.');
                 return;
             }
 
