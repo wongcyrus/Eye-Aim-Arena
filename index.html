@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Eye Aim Arena</title>
+    <meta name="description" content="Browser-based shooting game controlled entirely by eye gaze — no backend, no plugins.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='28'>👁️</text></svg>">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Game canvas (full screen) ───────────────────────── -->
+<canvas id="gameCanvas"></canvas>
+
+<!-- Webcam feed (hidden — only used by MediaPipe) -->
+<video id="webcamVideo" autoplay playsinline muted></video>
+
+<!-- ── Loading screen ──────────────────────────────────── -->
+<div id="loadingScreen" class="overlay">
+    <div class="overlay-content">
+        <h1>👁️ Eye Aim Arena</h1>
+        <div class="spinner"></div>
+        <div class="progress-bar">
+            <div id="loadProgress" class="progress-fill"></div>
+        </div>
+        <p id="loadStatus">Starting…</p>
+        <p style="margin-top:1rem;font-size:0.8rem;color:rgba(255,255,255,0.35);line-height:1.6">
+            Allow camera access when prompted.<br>
+            All processing runs locally in your browser.
+        </p>
+    </div>
+</div>
+
+<!-- ── Main menu ───────────────────────────────────────── -->
+<div id="menuScreen" class="overlay" style="display:none">
+    <div class="overlay-content">
+        <h1>👁️ Eye Aim Arena</h1>
+        <p class="subtitle">Aim with your eyes &nbsp;·&nbsp; Shoot with a blink</p>
+
+        <div class="menu-buttons">
+            <button id="timeAttackBtn">⏱️ &nbsp;Time Attack &nbsp;<small style="font-weight:400;opacity:.6">60 s sprint</small></button>
+            <button id="survivalBtn">💀 &nbsp;Survival &nbsp;<small style="font-weight:400;opacity:.6">don't let targets escape</small></button>
+            <button id="precisionBtn">🎯 &nbsp;Precision &nbsp;<small style="font-weight:400;opacity:.6">20 rounds, small targets</small></button>
+            <button id="calibrateBtn">🔧 &nbsp;Recalibrate eye tracking</button>
+        </div>
+
+        <div id="leaderboard">
+            <h3>🏆 High Scores</h3>
+            <div id="leaderboardList"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Game Over screen ────────────────────────────────── -->
+<div id="gameoverScreen" class="overlay" style="display:none">
+    <div class="overlay-content">
+        <h2>Game Over</h2>
+        <div id="finalStats"></div>
+        <div class="gameover-buttons">
+            <button id="playAgainBtn">▶ Play Again</button>
+            <button id="menuBtn">☰ Menu</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Pause screen ─────────────────────────────────────── -->
+<div id="pauseScreen" style="display:none">
+    <div class="pause-box">
+        <h2>⏸ Paused</h2>
+        <p>Press <kbd>P</kbd> or <kbd>Esc</kbd> to resume</p>
+        <br>
+        <button id="resumeBtn" style="
+            padding:.6rem 1.4rem;border:2px solid rgba(0,229,255,.4);
+            border-radius:8px;background:rgba(0,229,255,.08);color:#e0f0ff;
+            font-size:1rem;font-weight:700;cursor:pointer">
+            ▶ Resume
+        </button>
+    </div>
+</div>
+
+<!-- ── Error screen ─────────────────────────────────────── -->
+<div id="errorScreen">
+    <div class="error-box">
+        <h2>⚠ Error</h2>
+        <p id="errorDetail">An unexpected error occurred.</p>
+        <button id="retryBtn" onclick="location.reload()">Reload</button>
+    </div>
+</div>
+
+<!-- ── HUD (shown during gameplay) ─────────────────────── -->
+<div id="hud" style="display:none">
+    <div id="hudLeft">
+        <span id="scoreDisplay"   class="hud-value">Score: 0</span>
+        <span id="modeDisplay"    class="hud-value">–</span>
+    </div>
+    <div id="hudRight">
+        <span id="timerDisplay"    class="hud-value">Time: 60</span>
+        <span id="accuracyDisplay" class="hud-value">Acc: 100%</span>
+    </div>
+</div>
+
+<!-- Survival lives bar -->
+<div id="healthBar" style="display:none">
+    <div class="health-label">Lives</div>
+    <div class="health-track">
+        <div id="healthFill"></div>
+    </div>
+</div>
+
+<!-- Keyboard hint -->
+<div id="keyboardHint" style="display:none">
+    Blink to shoot &nbsp;·&nbsp; <kbd>Space</kbd> / click as fallback &nbsp;·&nbsp; <kbd>P</kbd> to pause
+</div>
+
+<!-- ── Scripts ──────────────────────────────────────────── -->
+<!--
+    game.js is loaded as an ES module; it imports eyetracker.js and
+    calibration.js, which in turn dynamically import MediaPipe from CDN.
+    No build step required.
+-->
+<script type="module" src="js/game.js"></script>
+
+</body>
+</html>
