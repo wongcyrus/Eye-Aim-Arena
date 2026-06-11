@@ -215,11 +215,15 @@ html, body {
 }
 
 .settings-toggles label {
-    margin-bottom: 0.5rem;
+    display: inline;
 }
 
 .settings-toggles input[type='checkbox'] {
     margin-right: 0.5rem;
+}
+
+.settings-toggles > div {
+    margin-bottom: 0.5rem;
 }
 
 /* ── Leaderboard ──────────────────────────── */

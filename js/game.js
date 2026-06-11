@@ -1095,8 +1095,10 @@ class Game {
 
     async _openSettings() {
         this._hideAllScreens();
-        document.getElementById('invertXCheckbox').checked = this.settings.invertX;
-        document.getElementById('invertYCheckbox').checked = this.settings.invertY;
+        const invertXEl = document.getElementById('invertXCheckbox');
+        const invertYEl = document.getElementById('invertYCheckbox');
+        if (invertXEl) invertXEl.checked = this.settings.invertX;
+        if (invertYEl) invertYEl.checked = this.settings.invertY;
         await this._refreshCameraList();
         this._showScreen('settingsScreen');
     }
@@ -1208,9 +1210,17 @@ class Game {
         document.getElementById('settingsCancelBtn')?.addEventListener('click',
             () => this._closeSettings());
         document.getElementById('settingsSaveBtn')?.addEventListener('click', async () => {
-            const invertX = document.getElementById('invertXCheckbox').checked;
-            const invertY = document.getElementById('invertYCheckbox').checked;
-            const cameraId = document.getElementById('cameraSelect').value;
+            const invertXEl = document.getElementById('invertXCheckbox');
+            const invertYEl = document.getElementById('invertYCheckbox');
+            const cameraSelectEl = document.getElementById('cameraSelect');
+            if (!invertXEl || !invertYEl || !cameraSelectEl) {
+                this._showError('Settings UI not available.', 'Please reload the page and try again.');
+                return;
+            }
+
+            const invertX = invertXEl.checked;
+            const invertY = invertYEl.checked;
+            const cameraId = cameraSelectEl.value;
 
             try {
                 await this._applyCameraSelection(cameraId);
