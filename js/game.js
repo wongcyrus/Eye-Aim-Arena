@@ -45,6 +45,7 @@ const PALETTE = {
 };
 
 const LS_SCORES = 'eyeAimArena_scores';
+const LS_SETTINGS = 'eyeAimArena_settings';
 const MAX_SCORES = 10;
 const LEADERBOARD_DISPLAY_COUNT = 8;
 
@@ -400,6 +401,9 @@ class Game {
         this.tracker  = new EyeTracker();
         this.calibration = new CalibrationSystem(this.canvas, this.tracker);
         this.audio    = new GameAudio();
+        this.settings = this._loadSettings();
+        this.availableCameras = [];
+        this.currentCameraDeviceId = this.settings.cameraDeviceId || '';
 
         // State
         this.state    = STATES.LOADING;
@@ -449,16 +453,8 @@ class Game {
 
         // Webcam
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-                audio: false,
-            });
-            this.video.srcObject = stream;
-            await new Promise((res, rej) => {
-                this.video.onloadeddata = res;
-                this.video.onerror = rej;
-                this.video.play();
-            });
+            await this._openCamera(this.settings.cameraDeviceId);
+            await this._refreshCameraList();
         } catch (err) {
             this._showError('Camera access denied or unavailable.', err.message);
             return;
@@ -502,11 +498,13 @@ class Game {
         // Eye tracking (every frame)
         const tracking = this.tracker.processFrame(this.video, timestamp);
         if (tracking?.faceDetected) {
-            // Apply calibration transform
+            // Apply calibration transform (normalised coordinates in [0,1]).
             const cal = this.calibration.applyTransform(tracking.gazeX, tracking.gazeY);
+            const mappedX = this.settings.invertX ? 1 - cal.x : cal.x;
+            const mappedY = this.settings.invertY ? 1 - cal.y : cal.y;
             // Secondary smoothing
-            this._smoothGazeX += (cal.x - this._smoothGazeX) * this._gazeAlpha;
-            this._smoothGazeY += (cal.y - this._smoothGazeY) * this._gazeAlpha;
+            this._smoothGazeX += (mappedX - this._smoothGazeX) * this._gazeAlpha;
+            this._smoothGazeY += (mappedY - this._smoothGazeY) * this._gazeAlpha;
             this.gazeX = this._smoothGazeX;
             this.gazeY = this._smoothGazeY;
         }
@@ -969,7 +967,7 @@ class Game {
     // ── Screen management ─────────────────────────────────────────
 
     _hideAllScreens() {
-        ['loadingScreen', 'menuScreen', 'gameoverScreen'].forEach(id => {
+        ['loadingScreen', 'menuScreen', 'settingsScreen', 'gameoverScreen'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
@@ -991,6 +989,131 @@ class Game {
     _setCameraPreviewVisible(visible) {
         if (!this.cameraPreview) return;
         this.cameraPreview.style.display = visible ? 'block' : 'none';
+    }
+
+    _defaultSettings() {
+        return {
+            invertX: false,
+            invertY: false,
+            cameraDeviceId: '',
+        };
+    }
+
+    _loadSettings() {
+        const defaults = this._defaultSettings();
+        try {
+            const raw = localStorage.getItem(LS_SETTINGS);
+            if (!raw) return defaults;
+            const parsed = JSON.parse(raw);
+            return {
+                invertX: Boolean(parsed.invertX),
+                invertY: Boolean(parsed.invertY),
+                cameraDeviceId: typeof parsed.cameraDeviceId === 'string' ? parsed.cameraDeviceId : '',
+            };
+        } catch {
+            return defaults;
+        }
+    }
+
+    _saveSettings() {
+        try { localStorage.setItem(LS_SETTINGS, JSON.stringify(this.settings)); } catch { /* ignore */ }
+    }
+
+    async _openCamera(deviceId = '') {
+        const constraints = {
+            video: deviceId
+                ? {
+                    width: { ideal: 640 },
+                    height: { ideal: 480 },
+                    deviceId: { exact: deviceId },
+                }
+                : {
+                    width: { ideal: 640 },
+                    height: { ideal: 480 },
+                    facingMode: 'user',
+                },
+            audio: false,
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const oldStream = this.video.srcObject;
+        if (oldStream && oldStream !== stream) {
+            for (const t of oldStream.getTracks()) t.stop();
+        }
+
+        this.video.srcObject = stream;
+        await new Promise((res, rej) => {
+            this.video.onloadeddata = res;
+            this.video.onerror = rej;
+            this.video.play();
+        });
+
+        const [track] = stream.getVideoTracks();
+        // deviceId may be unavailable on older browsers/privacy-restricted contexts.
+        const activeId = track?.getSettings?.().deviceId || deviceId || '';
+        this.currentCameraDeviceId = activeId;
+        this.settings.cameraDeviceId = activeId;
+        this._saveSettings();
+    }
+
+    async _refreshCameraList() {
+        if (!navigator.mediaDevices?.enumerateDevices) {
+            this.availableCameras = [];
+            this._populateCameraSelect();
+            return;
+        }
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        this.availableCameras = devices.filter(d => d.kind === 'videoinput');
+        this._populateCameraSelect();
+    }
+
+    _populateCameraSelect() {
+        const select = document.getElementById('cameraSelect');
+        if (!select) return;
+
+        select.innerHTML = '';
+        if (this.availableCameras.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Default camera';
+            select.appendChild(option);
+            select.value = '';
+            return;
+        }
+
+        this.availableCameras.forEach((camera, idx) => {
+            const option = document.createElement('option');
+            option.value = camera.deviceId;
+            option.textContent = camera.label || `Camera ${idx + 1}`;
+            select.appendChild(option);
+        });
+
+        const selectedId = this.settings.cameraDeviceId || this.currentCameraDeviceId;
+        const hasSelected = this.availableCameras.some(c => c.deviceId === selectedId);
+        select.value = hasSelected ? selectedId : this.availableCameras[0].deviceId;
+    }
+
+    async _openSettings() {
+        this._hideAllScreens();
+        const invertXEl = document.getElementById('invertXCheckbox');
+        const invertYEl = document.getElementById('invertYCheckbox');
+        if (invertXEl) invertXEl.checked = this.settings.invertX;
+        if (invertYEl) invertYEl.checked = this.settings.invertY;
+        await this._refreshCameraList();
+        this._showScreen('settingsScreen');
+    }
+
+    _closeSettings() {
+        this._goToMenu();
+    }
+
+    async _applyCameraSelection(deviceId) {
+        const nextId = deviceId || '';
+        const currentId = this.currentCameraDeviceId || this.settings.cameraDeviceId || '';
+        if (nextId === currentId) return;
+        await this._openCamera(nextId);
+        await this._refreshCameraList();
     }
 
     _getEyeStatusText() {
@@ -1045,6 +1168,10 @@ class Game {
                 break;
             case 'Escape':
             case 'KeyP':
+                if (document.getElementById('settingsScreen')?.style.display === 'flex') {
+                    this._closeSettings();
+                    break;
+                }
                 if (this.state === STATES.PLAYING)  this._pauseGame();
                 else if (this.state === STATES.PAUSED) this._resumeGame();
                 break;
@@ -1070,8 +1197,43 @@ class Game {
             () => this._startGame(MODE.SURVIVAL));
         document.getElementById('precisionBtn').addEventListener('click',
             () => this._startGame(MODE.PRECISION));
+        document.getElementById('settingsBtn').addEventListener('click', async () => {
+            try {
+                await this._openSettings();
+            } catch (err) {
+                this._showError('Failed to load settings.', err.message);
+            }
+        });
         document.getElementById('calibrateBtn').addEventListener('click',
             () => this._startCalibration());
+
+        // Settings
+        document.getElementById('settingsCancelBtn')?.addEventListener('click',
+            () => this._closeSettings());
+        document.getElementById('settingsSaveBtn')?.addEventListener('click', async () => {
+            const invertXEl = document.getElementById('invertXCheckbox');
+            const invertYEl = document.getElementById('invertYCheckbox');
+            const cameraSelectEl = document.getElementById('cameraSelect');
+            if (!invertXEl || !invertYEl || !cameraSelectEl) {
+                this._showError('Settings controls unavailable.', 'Some settings controls are missing from the page. Please reload and try again.');
+                return;
+            }
+
+            const invertX = invertXEl.checked;
+            const invertY = invertYEl.checked;
+            const cameraId = cameraSelectEl.value;
+
+            try {
+                await this._applyCameraSelection(cameraId);
+                this.settings.invertX = invertX;
+                this.settings.invertY = invertY;
+                this.settings.cameraDeviceId = this.currentCameraDeviceId || cameraId || '';
+                this._saveSettings();
+                this._closeSettings();
+            } catch (err) {
+                this._showError('Failed to switch camera.', err.message);
+            }
+        });
 
         // Game over
         document.getElementById('playAgainBtn').addEventListener('click', () => {

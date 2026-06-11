@@ -169,6 +169,60 @@ html, body {
     box-shadow: 0 0 16px rgba(255, 64, 129, 0.3) !important;
 }
 
+#settingsBtn {
+    background: rgba(255, 204, 0, 0.08) !important;
+    border-color: rgba(255, 204, 0, 0.4) !important;
+}
+
+#settingsBtn:hover {
+    background: rgba(255, 204, 0, 0.2) !important;
+    border-color: var(--yellow) !important;
+    box-shadow: 0 0 16px rgba(255, 204, 0, 0.25) !important;
+}
+
+#settingsScreen h2 {
+    font-size: 2rem;
+    color: var(--yellow);
+    margin-bottom: 1rem;
+}
+
+.settings-group {
+    text-align: left;
+    margin-bottom: 1rem;
+}
+
+.settings-group label {
+    display: block;
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.75);
+    margin-bottom: 0.4rem;
+}
+
+#cameraSelect {
+    width: 100%;
+    padding: 0.7rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 229, 255, 0.35);
+    background: rgba(0, 0, 0, 0.35);
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.settings-hint {
+    margin-top: 0.4rem;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.45);
+}
+
+.settings-toggles label {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.settings-toggles input[type='checkbox'] {
+    margin-right: 0.5rem;
+}
+
 /* ── Leaderboard ──────────────────────────── */
 #leaderboard {
     border-top: 1px solid rgba(255,255,255,0.1);

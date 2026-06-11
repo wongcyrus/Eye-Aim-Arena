@@ -9,6 +9,14 @@ A fully client-side, real-time shooting game controlled entirely by **eye gaze**
 3. Complete the **9-point calibration** (look at each dot while it fills).
 4. Choose a game mode and play!
 
+### Settings
+
+From the main menu, open **⚙️ Settings** to:
+
+- choose which webcam to use (useful when multiple cameras are connected)
+- invert left/right aiming
+- invert up/down aiming
+
 ### Controls
 
 | Action | Primary | Fallback |
@@ -66,6 +74,7 @@ python3 -m http.server 8080
 - Real-time iris gaze tracking (30–60 FPS)
 - Blink-to-shoot with debounce to prevent accidental firing
 - 9-point affine-transform calibration (persisted across sessions)
+- Settings screen for webcam selection and aim inversion
 - Three distinct game modes with adaptive difficulty
 - Moving targets: static, linear (bouncing), and drifting
 - Particle hit effects and reticle animations
