@@ -362,7 +362,12 @@ function _solveLinear3(M, rhs) {
         }
         [aug[col], aug[maxRow]] = [aug[maxRow], aug[col]];
 
-        if (Math.abs(aug[col][col]) < 1e-12) throw new Error('Singular system');
+        if (Math.abs(aug[col][col]) < 1e-12) {
+            throw new Error(
+                'Calibration failed: unable to compute eye tracking transform. ' +
+                'Please try recalibrating and ensure your face is clearly visible.'
+            );
+        }
 
         for (let row = col + 1; row < N; row++) {
             const f = aug[row][col] / aug[col][col];

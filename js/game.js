@@ -46,6 +46,26 @@ const PALETTE = {
 
 const LS_SCORES = 'eyeAimArena_scores';
 const MAX_SCORES = 10;
+const LEADERBOARD_DISPLAY_COUNT = 8;
+
+// Target lifetime tuning
+const TARGET_LIFETIME_MIN_MS       = 2000;
+const TARGET_LIFETIME_BASE_MS      = 5000;
+const TARGET_LIFETIME_DIFF_STEP_MS = 400;
+
+// Target fade-in / fade-out thresholds (fraction of lifetime)
+const FADE_IN_END         = 0.10;  // fade in over first 10 %
+const FADE_OUT_START      = 0.78;  // start fading at 78 %
+const FADE_OUT_DURATION   = 0.22;  // fade span = 22 % of lifetime
+
+// Danger flash (near expiry)
+const DANGER_FLASH_START  = 0.72;
+const DANGER_FLASH_RANGE  = 0.28;
+const DANGER_FLASH_FREQ   = 10;    // oscillations per remaining fraction
+
+// Survival spawning limits
+const SURVIVAL_BASE_MAX_TARGETS = 3;
+const SURVIVAL_HARD_MAX_TARGETS = 8;
 
 // ─────────────────────────────────────────────────────────────────────
 //  Audio (Web Audio API — no external files)
@@ -204,8 +224,8 @@ class Target {
 
         // Fade-in / fade-out alpha
         let alpha = 1;
-        if (lifeRat < 0.1)  alpha = lifeRat / 0.1;
-        if (lifeRat > 0.78) alpha = (1 - lifeRat) / 0.22;
+        if (lifeRat < FADE_IN_END)    alpha = lifeRat / FADE_IN_END;
+        if (lifeRat > FADE_OUT_START) alpha = (1 - lifeRat) / FADE_OUT_DURATION;
         ctx.globalAlpha = Math.max(0.05, alpha);
 
         // Outer glow
@@ -237,8 +257,10 @@ class Target {
         ctx.fill();
 
         // Danger flash near expiry
-        if (lifeRat > 0.72) {
-            const flash = Math.sin((lifeRat - 0.72) / 0.28 * Math.PI * 10) > 0;
+        if (lifeRat > DANGER_FLASH_START) {
+            const flash = Math.sin(
+                (lifeRat - DANGER_FLASH_START) / DANGER_FLASH_RANGE * Math.PI * DANGER_FLASH_FREQ
+            ) > 0;
             if (flash) {
                 ctx.strokeStyle = '#ff4444';
                 ctx.lineWidth   = 3;
@@ -305,7 +327,10 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK) {
         baseScore = Math.round(baseScore * 1.4);
     }
 
-    lifetime = Math.max(2000, 5000 - difficulty * 400);
+    lifetime = Math.max(
+        TARGET_LIFETIME_MIN_MS,
+        TARGET_LIFETIME_BASE_MS - difficulty * TARGET_LIFETIME_DIFF_STEP_MS
+    );
 
     // Movement type
     const typeRoll = Math.random();
@@ -520,7 +545,7 @@ class Game {
 
         // ---- Spawn targets ----
         const maxActive = this.mode === MODE.SURVIVAL
-            ? Math.min(8, 3 + Math.floor(this.difficulty))
+            ? Math.min(SURVIVAL_HARD_MAX_TARGETS, SURVIVAL_BASE_MAX_TARGETS + Math.floor(this.difficulty))
             : this.mode === MODE.PRECISION ? 1 : 5;
 
         if (this.targets.length < maxActive &&
@@ -939,7 +964,7 @@ class Game {
             el.innerHTML = '<p style="text-align:center;color:rgba(255,255,255,0.35);font-size:0.85rem">No scores yet — play a game!</p>';
             return;
         }
-        el.innerHTML = scores.slice(0, 8).map((s, i) => `
+        el.innerHTML = scores.slice(0, LEADERBOARD_DISPLAY_COUNT).map((s, i) => `
             <div class="lb-entry">
                 <span class="lb-rank">#${i + 1}</span>
                 <span class="lb-mode">${modeLabel(s.mode)}</span>
