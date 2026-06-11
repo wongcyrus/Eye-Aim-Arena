@@ -391,6 +391,10 @@ class Game {
         this.canvas   = document.getElementById('gameCanvas');
         this.ctx      = this.canvas.getContext('2d');
         this.video    = document.getElementById('webcamVideo');
+        const cameraPreviewEl = document.getElementById('cameraPreview');
+        this.cameraOverlay = document.getElementById('cameraOverlay');
+        this.cameraCtx = this.cameraOverlay ? this.cameraOverlay.getContext('2d') : null;
+        this.cameraPreview = this.cameraCtx ? cameraPreviewEl : null;
 
         // Core systems
         this.tracker  = new EyeTracker();
@@ -676,6 +680,7 @@ class Game {
             this.calibration.render(ctx, timestamp);
             // Show raw gaze marker during calibration
             this._drawRawGazeMarker(ctx, W, H);
+            this._drawCameraPreview();
             return;
         }
 
@@ -695,6 +700,8 @@ class Game {
             ctx.fillStyle = 'rgba(0,0,0,0.55)';
             ctx.fillRect(0, 0, W, H);
         }
+
+        this._drawCameraPreview();
     }
 
     _drawGrid(ctx, W, H) {
@@ -728,6 +735,46 @@ class Game {
         ctx.beginPath();
         ctx.arc(px, py, 5, 0, Math.PI * 2);
         ctx.fill();
+    }
+
+    _drawCameraPreview() {
+        if (!this.cameraCtx) return;
+        const ctx = this.cameraCtx;
+        const W = this.cameraOverlay.width;
+        const H = this.cameraOverlay.height;
+
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+
+        if (this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            ctx.save();
+            ctx.translate(W, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(this.video, 0, 0, W, H);
+            ctx.restore();
+        }
+
+        if (this.tracker.faceDetected) {
+            // Preview video is mirrored for natural selfie-view, so mirror X as well.
+            const px = (1 - this.tracker.rawGazeX) * W; // raw gaze is non-mirrored
+            const py = this.tracker.rawGazeY * H;
+
+            ctx.strokeStyle = 'rgba(0,229,255,0.9)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(px, py, 14, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = '#00e5ff';
+            ctx.beginPath();
+            ctx.arc(px, py, 4, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            ctx.fillStyle = 'rgba(255,68,68,0.9)';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Face not detected', W / 2, H - 10);
+        }
     }
 
     _drawReticle(ctx, W, H, timestamp) {
@@ -801,6 +848,7 @@ class Game {
     _startCalibration() {
         this.state = STATES.CALIBRATION;
         this._hideAllScreens();
+        this._setCameraPreviewVisible(true);
         this.calibration.start((success) => {
             if (success) {
                 this._goToMenu();
@@ -814,6 +862,7 @@ class Game {
     _goToMenu() {
         this.state = STATES.MENU;
         this._hideAllScreens();
+        this._setCameraPreviewVisible(false);
         this._renderLeaderboard();
         this._showScreen('menuScreen');
     }
@@ -868,6 +917,7 @@ class Game {
     _showHUD(mode) {
         const hud = document.getElementById('hud');
         hud.style.display = 'flex';
+        this._setCameraPreviewVisible(true);
 
         document.getElementById('modeDisplay').textContent = modeLabel(mode);
 
@@ -889,6 +939,7 @@ class Game {
         document.getElementById('hud').style.display = 'none';
         document.getElementById('healthBar').style.display = 'none';
         document.getElementById('keyboardHint').style.display = 'none';
+        this._setCameraPreviewVisible(false);
     }
 
     _updateHUD() {
@@ -896,6 +947,7 @@ class Game {
         const accuracy = this.shots > 0
             ? Math.round((this.hits / this.shots) * 100) : 100;
         document.getElementById('accuracyDisplay').textContent = `Acc: ${accuracy}%`;
+        document.getElementById('eyeStatus').textContent = this._getEyeStatusText();
 
         if (this.mode === MODE.TIME_ATTACK) {
             const remaining = Math.max(0, Math.ceil((this.gameDuration - (performance.now() - this.startTime)) / 1000));
@@ -934,6 +986,16 @@ class Game {
             document.getElementById('loadProgress').style.width = `${pct}%`;
         }
         if (msg) document.getElementById('loadStatus').textContent = msg;
+    }
+
+    _setCameraPreviewVisible(visible) {
+        if (!this.cameraPreview) return;
+        this.cameraPreview.style.display = visible ? 'block' : 'none';
+    }
+
+    _getEyeStatusText() {
+        if (!this.tracker.faceDetected) return 'Eye: face not detected';
+        return `Eye: ${Math.round(this.gazeX * 100)}%, ${Math.round(this.gazeY * 100)}%`;
     }
 
     _showError(title, detail) {
