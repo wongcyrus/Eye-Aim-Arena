@@ -260,6 +260,40 @@ html, body {
 #modeDisplay  { color: rgba(255,255,255,0.6); font-size: 0.85rem; }
 #accuracyDisplay { color: var(--green); }
 #livesDisplay { color: var(--red); }
+#eyeStatus { color: rgba(255,255,255,0.8); font-size: 0.82rem; }
+
+/* ── Camera preview ───────────────────────── */
+#cameraPreview {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 6;
+    width: 240px;
+    border: 1px solid rgba(0, 229, 255, 0.35);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.camera-label {
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+    background: rgba(0, 229, 255, 0.12);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+#cameraOverlay {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #000;
+}
 
 /* ── Health / Lives bar ───────────────────── */
 #healthBar {

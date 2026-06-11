@@ -97,7 +97,14 @@
     <div id="hudRight">
         <span id="timerDisplay"    class="hud-value">Time: 60</span>
         <span id="accuracyDisplay" class="hud-value">Acc: 100%</span>
+        <span id="eyeStatus" class="hud-value">Eye: calibrating…</span>
     </div>
+</div>
+
+<!-- In-game camera preview -->
+<div id="cameraPreview" style="display:none">
+    <div class="camera-label">Camera + Eye Position</div>
+    <canvas id="cameraOverlay" width="240" height="180"></canvas>
 </div>
 
 <!-- Survival lives bar -->
