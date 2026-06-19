@@ -261,7 +261,7 @@ export class CalibrationSystem {
      */
     applyTransform(irisX, irisY) {
         if (!this.transformX || !this.transformY) {
-            return { x: irisX, y: irisY };
+            return { x: 1 - irisX, y: irisY };
         }
         const [a, b, c] = this.transformX;
         const [d, e, f] = this.transformY;

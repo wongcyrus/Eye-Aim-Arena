@@ -404,6 +404,8 @@ class Game {
         this.settingsEyeStatus = document.getElementById('settingsEyeStatus');
         this.isSettingsOpen = false;
 
+        this.menuGazeReticle = document.getElementById('menuGazeReticle');
+
         // Core systems
         this.tracker  = new EyeTracker();
         this.calibration = new CalibrationSystem(this.canvas, this.tracker);
@@ -460,6 +462,20 @@ class Game {
         this._resize();
         window.addEventListener('resize', this._onResize);
         window.addEventListener('keydown', this._onKeyDown);
+
+        // Tab visibility state tracking to pause/resume WebGazer
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (this._webgazerInitialized) {
+                    try { webgazer.pause(); } catch (err) {}
+                }
+            } else {
+                if (this._webgazerInitialized && this.settings.trackingMode === 'webgazer' && 
+                    (this.state === STATES.MENU || this.state === STATES.PLAYING || this.state === STATES.CALIBRATION || this.isSettingsOpen)) {
+                    try { webgazer.resume(); } catch (err) {}
+                }
+            }
+        });
 
         this._showScreen('loadingScreen');
         this._setProgress(5, 'Requesting camera…');
@@ -739,6 +755,19 @@ class Game {
 
         this._drawCameraPreview();
         this._drawSettingsCameraPreview();
+
+        // --- Menu Gaze Reticle ---
+        if (this.state === STATES.MENU) {
+            if (this.menuGazeReticle) {
+                this.menuGazeReticle.style.display = 'block';
+                this.menuGazeReticle.style.left = `${this.gazeX * window.innerWidth}px`;
+                this.menuGazeReticle.style.top = `${this.gazeY * window.innerHeight}px`;
+            }
+        } else {
+            if (this.menuGazeReticle) {
+                this.menuGazeReticle.style.display = 'none';
+            }
+        }
     }
 
     _drawGrid(ctx, W, H) {
@@ -760,15 +789,31 @@ class Game {
     }
 
     _drawRawGazeMarker(ctx, W, H) {
-        if (!this.tracker.faceDetected) return;
-        const px = this.tracker.rawGazeX * W;
-        const py = this.tracker.rawGazeY * H;
-        ctx.strokeStyle = 'rgba(0,229,255,0.6)';
+        const isWebGazer = this.settings.trackingMode === 'webgazer';
+        const detected = isWebGazer ? this.webgazerDetected : this.tracker.faceDetected;
+        if (!detected) return;
+
+        let px, py;
+        let colorTheme;
+        if (isWebGazer) {
+            // WebGazer coordinates are absolute pixels relative to window
+            const normX = this.webgazerRawX / window.innerWidth;
+            const normY = this.webgazerRawY / window.innerHeight;
+            px = normX * W;
+            py = normY * H;
+            colorTheme = 'rgba(255,102,0,'; // Orange glow for WebGazer
+        } else {
+            px = this.tracker.rawGazeX * W;
+            py = this.tracker.rawGazeY * H;
+            colorTheme = 'rgba(0,229,255,'; // Cyan for MediaPipe
+        }
+
+        ctx.strokeStyle = colorTheme + '0.6)';
         ctx.lineWidth   = 2;
         ctx.beginPath();
         ctx.arc(px, py, 14, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillStyle = 'rgba(0,229,255,0.4)';
+        ctx.fillStyle = colorTheme + '0.4)';
         ctx.beginPath();
         ctx.arc(px, py, 5, 0, Math.PI * 2);
         ctx.fill();
@@ -791,18 +836,32 @@ class Game {
             ctx.restore();
         }
 
-        if (this.tracker.faceDetected) {
-            // Preview video is mirrored for natural selfie-view, so mirror X as well.
-            const px = (1 - this.tracker.rawGazeX) * W; // raw gaze is non-mirrored
-            const py = this.tracker.rawGazeY * H;
+        const isWebGazer = this.settings.trackingMode === 'webgazer';
+        const detected = isWebGazer ? this.webgazerDetected : this.tracker.faceDetected;
 
-            ctx.strokeStyle = 'rgba(0,229,255,0.9)';
+        if (detected) {
+            let px, py;
+            let colorTheme;
+            if (isWebGazer) {
+                const normX = this.webgazerRawX / window.innerWidth;
+                const normY = this.webgazerRawY / window.innerHeight;
+                // Preview video is mirrored horizontally, so mirror horizontal coordinate
+                px = (1 - normX) * W;
+                py = normY * H;
+                colorTheme = '#ff6600';
+            } else {
+                px = (1 - this.tracker.rawGazeX) * W;
+                py = this.tracker.rawGazeY * H;
+                colorTheme = '#00e5ff';
+            }
+
+            ctx.strokeStyle = colorTheme;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(px, py, 14, 0, Math.PI * 2);
             ctx.stroke();
 
-            ctx.fillStyle = '#00e5ff';
+            ctx.fillStyle = colorTheme;
             ctx.beginPath();
             ctx.arc(px, py, 4, 0, Math.PI * 2);
             ctx.fill();
@@ -831,13 +890,16 @@ class Game {
             ctx.restore();
         }
 
-        if (this.tracker.faceDetected) {
+        const trackingModeEl = document.getElementById('trackingModeSelect');
+        const liveTrackingMode = trackingModeEl ? trackingModeEl.value : this.settings.trackingMode;
+        const isWebGazer = liveTrackingMode === 'webgazer';
+        const detected = isWebGazer ? this.webgazerDetected : this.tracker.faceDetected;
+
+        if (detected) {
             const invertXEl = document.getElementById('invertXCheckbox');
             const invertYEl = document.getElementById('invertYCheckbox');
-            const trackingModeEl = document.getElementById('trackingModeSelect');
             const liveInvertX = invertXEl ? invertXEl.checked : this.settings.invertX;
             const liveInvertY = invertYEl ? invertYEl.checked : this.settings.invertY;
-            const liveTrackingMode = trackingModeEl ? trackingModeEl.value : this.settings.trackingMode;
 
             // Compute calibrated live eye position
             let liveGazeX, liveGazeY;
@@ -1002,9 +1064,31 @@ class Game {
         this._setCameraPreviewVisible(false);
         this._renderLeaderboard();
         this._showScreen('menuScreen');
+
+        if (this.settings.trackingMode === 'webgazer') {
+            if (this._webgazerInitialized) {
+                try {
+                    webgazer.resume();
+                } catch (err) {
+                    console.warn('Failed to resume WebGazer in menu:', err);
+                }
+            } else {
+                this._initWebGazer().catch(err => {
+                    console.warn('Failed to initialize WebGazer on menu transition:', err);
+                });
+            }
+        } else {
+            if (this._webgazerInitialized) {
+                try {
+                    webgazer.pause();
+                } catch (err) {
+                    console.warn('Failed to pause WebGazer in menu:', err);
+                }
+            }
+        }
     }
 
-    _startGame(mode) {
+    async _startGame(mode) {
         this.mode        = mode;
         this.state       = STATES.PLAYING;
         this.score       = 0;
@@ -1022,6 +1106,8 @@ class Game {
         this._hideAllScreens();
         this._showHUD(mode);
         this._updateHUD();
+
+        await this._updateTrackingMode();
     }
 
     _endGame() {
@@ -1137,11 +1223,6 @@ class Game {
             return;
         }
 
-        webgazer.showVideo(false);
-        webgazer.showFaceOverlay(false);
-        webgazer.showFaceFeedbackBox(false);
-        webgazer.showPredictionPoints(false);
-
         webgazer.setGazeListener((data, elapsed) => {
             if (!data) {
                 this.webgazerDetected = false;
@@ -1153,6 +1234,16 @@ class Game {
         });
 
         await webgazer.begin();
+
+        try {
+            webgazer.showVideo(false);
+            webgazer.showFaceOverlay(false);
+            webgazer.showFaceFeedbackBox(false);
+            webgazer.showPredictionPoints(false);
+        } catch (err) {
+            console.warn('Failed to hide WebGazer default UI elements:', err);
+        }
+
         this._webgazerInitialized = true;
     }
 
@@ -1294,6 +1385,9 @@ class Game {
         await this._refreshCameraList();
         this._showScreen('settingsScreen');
         this.isSettingsOpen = true;
+
+        // Ensure tracking mode is active for settings live preview
+        await this._updateTrackingMode();
     }
 
     async _closeSettings(cancelled = false) {
