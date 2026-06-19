@@ -1220,7 +1220,7 @@ class Game {
         if (this._webgazerInitialized) return;
         if (!window.webgazer) {
             console.error('WebGazer.js is not loaded.');
-            return;
+            throw new Error('WebGazer.js is not loaded on the window object.');
         }
 
         // Set MediaPipe face mesh solution path to the official CDN to avoid local 404 errors
@@ -1236,7 +1236,12 @@ class Game {
             this.webgazerRawY = data.y;
         });
 
-        await webgazer.begin();
+        try {
+            await webgazer.begin();
+        } catch (err) {
+            console.error('Error starting WebGazer.js:', err);
+            throw new Error('WebGazer.js failed to start. This can happen if third-party CDN scripts are blocked by your browser, or if camera access was denied.');
+        }
 
         try {
             webgazer.showVideo(false);
@@ -1253,14 +1258,40 @@ class Game {
     async _updateTrackingMode() {
         const mode = this.settings.trackingMode;
         if (mode === 'webgazer') {
-            if (!this._webgazerInitialized) {
-                await this._initWebGazer();
-            } else {
-                webgazer.resume();
+            try {
+                if (!this._webgazerInitialized) {
+                    await this._initWebGazer();
+                } else {
+                    webgazer.resume();
+                }
+            } catch (err) {
+                console.error('Error enabling WebGazer tracking mode:', err);
+                alert('WebGazer Eyeball Tracking Failed\n\n' + (err.message || 'An unknown error occurred during WebGazer initialization.') + '\n\nAutomatically falling back to MediaPipe (Iris Tracking) mode.');
+                
+                // Automatically fall back to MediaPipe hybrid tracking
+                this.settings.trackingMode = 'mediapipe';
+                const trackingModeEl = document.getElementById('trackingModeSelect');
+                if (trackingModeEl) {
+                    trackingModeEl.value = 'mediapipe';
+                }
+                if (this._webgazerInitialized) {
+                    try {
+                        webgazer.pause();
+                    } catch (pauseErr) {
+                        console.warn('Failed to pause WebGazer during fallback:', pauseErr);
+                    }
+                }
+                
+                // Recursively apply the fallback mode (mediapipe)
+                await this._updateTrackingMode();
             }
         } else {
             if (this._webgazerInitialized) {
-                webgazer.pause();
+                try {
+                    webgazer.pause();
+                } catch (err) {
+                    console.warn('Failed to pause WebGazer:', err);
+                }
             }
         }
     }
@@ -1390,7 +1421,11 @@ class Game {
         this.isSettingsOpen = true;
 
         // Ensure tracking mode is active for settings live preview
-        await this._updateTrackingMode();
+        try {
+            await this._updateTrackingMode();
+        } catch (err) {
+            console.error('Failed to initialize tracking mode in settings:', err);
+        }
     }
 
     async _closeSettings(cancelled = false) {
@@ -1398,7 +1433,11 @@ class Game {
 
         if (cancelled && this._settingsBackup) {
             this.settings = { ...this._settingsBackup };
-            await this._updateTrackingMode();
+            try {
+                await this._updateTrackingMode();
+            } catch (err) {
+                console.error('Failed to revert tracking mode on cancellation:', err);
+            }
             if (this.currentCameraDeviceId !== this._cameraBackupId) {
                 try {
                     await this._openCamera(this._cameraBackupId);
