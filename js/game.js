@@ -1223,6 +1223,9 @@ class Game {
             return;
         }
 
+        // Set MediaPipe face mesh solution path to the official CDN to avoid local 404 errors
+        webgazer.params.faceMeshSolutionPath = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh';
+
         webgazer.setGazeListener((data, elapsed) => {
             if (!data) {
                 this.webgazerDetected = false;
