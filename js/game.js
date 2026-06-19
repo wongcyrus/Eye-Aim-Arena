@@ -388,6 +388,7 @@ function modeLabel(m) {
 
 class Game {
     constructor() {
+        window.game = this;
         // DOM
         this.canvas   = document.getElementById('gameCanvas');
         this.ctx      = this.canvas.getContext('2d');
@@ -396,6 +397,12 @@ class Game {
         this.cameraOverlay = document.getElementById('cameraOverlay');
         this.cameraCtx = this.cameraOverlay ? this.cameraOverlay.getContext('2d') : null;
         this.cameraPreview = this.cameraCtx ? cameraPreviewEl : null;
+
+        // Settings Preview elements
+        this.settingsCameraOverlay = document.getElementById('settingsCameraOverlay');
+        this.settingsCameraCtx = this.settingsCameraOverlay ? this.settingsCameraOverlay.getContext('2d') : null;
+        this.settingsEyeStatus = document.getElementById('settingsEyeStatus');
+        this.isSettingsOpen = false;
 
         // Core systems
         this.tracker  = new EyeTracker();
@@ -415,6 +422,12 @@ class Game {
         this._smoothGazeX = 0.5;
         this._smoothGazeY = 0.5;
         this._gazeAlpha   = 0.2;   // secondary EMA after calibration
+
+        // WebGazer properties
+        this._webgazerInitialized = false;
+        this.webgazerDetected = false;
+        this.webgazerRawX = window.innerWidth / 2;
+        this.webgazerRawY = window.innerHeight / 2;
 
         // Game session
         this.targets    = [];
@@ -473,6 +486,15 @@ class Game {
         // Register blink → shoot
         this.tracker.onBlink(() => this._shoot());
 
+        // Initialize WebGazer if selected
+        if (this.settings.trackingMode === 'webgazer') {
+            try {
+                await this._updateTrackingMode();
+            } catch (err) {
+                console.warn('Failed to initialize WebGazer:', err);
+            }
+        }
+
         this._setProgress(100, 'Ready!');
         await _sleep(400);
 
@@ -497,16 +519,32 @@ class Game {
 
         // Eye tracking (every frame)
         const tracking = this.tracker.processFrame(this.video, timestamp);
-        if (tracking?.faceDetected) {
-            // Apply calibration transform (normalised coordinates in [0,1]).
-            const cal = this.calibration.applyTransform(tracking.gazeX, tracking.gazeY);
-            const mappedX = this.settings.invertX ? 1 - cal.x : cal.x;
-            const mappedY = this.settings.invertY ? 1 - cal.y : cal.y;
-            // Secondary smoothing
-            this._smoothGazeX += (mappedX - this._smoothGazeX) * this._gazeAlpha;
-            this._smoothGazeY += (mappedY - this._smoothGazeY) * this._gazeAlpha;
-            this.gazeX = this._smoothGazeX;
-            this.gazeY = this._smoothGazeY;
+        if (this.settings.trackingMode === 'webgazer') {
+            if (this.webgazerDetected) {
+                // Map the absolute screen pixel coordinates to normalized range [0, 1]
+                const normX = this.webgazerRawX / window.innerWidth;
+                const normY = this.webgazerRawY / window.innerHeight;
+
+                const mappedX = this.settings.invertX ? 1 - normX : normX;
+                const mappedY = this.settings.invertY ? 1 - normY : normY;
+
+                this._smoothGazeX += (mappedX - this._smoothGazeX) * this._gazeAlpha;
+                this._smoothGazeY += (mappedY - this._smoothGazeY) * this._gazeAlpha;
+                this.gazeX = Math.max(0, Math.min(1, this._smoothGazeX));
+                this.gazeY = Math.max(0, Math.min(1, this._smoothGazeY));
+            }
+        } else {
+            if (tracking?.faceDetected) {
+                // Apply calibration transform (normalised coordinates in [0,1]).
+                const cal = this.calibration.applyTransform(tracking.gazeX, tracking.gazeY);
+                const mappedX = this.settings.invertX ? 1 - cal.x : cal.x;
+                const mappedY = this.settings.invertY ? 1 - cal.y : cal.y;
+                // Secondary smoothing
+                this._smoothGazeX += (mappedX - this._smoothGazeX) * this._gazeAlpha;
+                this._smoothGazeY += (mappedY - this._smoothGazeY) * this._gazeAlpha;
+                this.gazeX = Math.max(0, Math.min(1, this._smoothGazeX));
+                this.gazeY = Math.max(0, Math.min(1, this._smoothGazeY));
+            }
         }
 
         // State-specific update
@@ -700,6 +738,7 @@ class Game {
         }
 
         this._drawCameraPreview();
+        this._drawSettingsCameraPreview();
     }
 
     _drawGrid(ctx, W, H) {
@@ -775,6 +814,93 @@ class Game {
         }
     }
 
+    _drawSettingsCameraPreview() {
+        if (!this.isSettingsOpen || !this.settingsCameraCtx) return;
+        const ctx = this.settingsCameraCtx;
+        const W = this.settingsCameraOverlay.width;
+        const H = this.settingsCameraOverlay.height;
+
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+
+        if (this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            ctx.save();
+            ctx.translate(W, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(this.video, 0, 0, W, H);
+            ctx.restore();
+        }
+
+        if (this.tracker.faceDetected) {
+            const invertXEl = document.getElementById('invertXCheckbox');
+            const invertYEl = document.getElementById('invertYCheckbox');
+            const trackingModeEl = document.getElementById('trackingModeSelect');
+            const liveInvertX = invertXEl ? invertXEl.checked : this.settings.invertX;
+            const liveInvertY = invertYEl ? invertYEl.checked : this.settings.invertY;
+            const liveTrackingMode = trackingModeEl ? trackingModeEl.value : this.settings.trackingMode;
+
+            // Compute calibrated live eye position
+            let liveGazeX, liveGazeY;
+            if (liveTrackingMode === 'webgazer') {
+                const normX = this.webgazerRawX / window.innerWidth;
+                const normY = this.webgazerRawY / window.innerHeight;
+                liveGazeX = liveInvertX ? 1 - normX : normX;
+                liveGazeY = liveInvertY ? 1 - normY : normY;
+            } else {
+                const cal = this.calibration.applyTransform(this.tracker.gazeX, this.tracker.gazeY);
+                liveGazeX = liveInvertX ? 1 - cal.x : cal.x;
+                liveGazeY = liveInvertY ? 1 - cal.y : cal.y;
+            }
+
+            const px = liveGazeX * W;
+            const py = liveGazeY * H;
+
+            // Screen boundary simulation
+            ctx.strokeStyle = 'rgba(0, 229, 255, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(10, 10, W - 20, H - 20);
+
+            // Cross grid lines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.beginPath();
+            ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H);
+            ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2);
+            ctx.stroke();
+
+            // Render aiming crosshair/point
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(px, py, 10, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(px - 15, py); ctx.lineTo(px + 15, py);
+            ctx.moveTo(px, py - 15); ctx.lineTo(px, py + 15);
+            ctx.stroke();
+
+            ctx.fillStyle = '#00ff88';
+            ctx.beginPath();
+            ctx.arc(px, py, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (this.settingsEyeStatus) {
+                this.settingsEyeStatus.textContent = `Eye: ${Math.round(liveGazeX * 100)}%, ${Math.round(liveGazeY * 100)}%`;
+                this.settingsEyeStatus.style.color = '#00ff88';
+            }
+        } else {
+            ctx.fillStyle = 'rgba(255,68,68,0.9)';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Face not detected', W / 2, H / 2);
+
+            if (this.settingsEyeStatus) {
+                this.settingsEyeStatus.textContent = 'Face not detected';
+                this.settingsEyeStatus.style.color = '#ff4444';
+            }
+        }
+    }
+
     _drawReticle(ctx, W, H, timestamp) {
         const px = this.gazeX * W;
         const py = this.gazeY * H;
@@ -843,10 +969,23 @@ class Game {
 
     // ── Game lifecycle ────────────────────────────────────────────
 
-    _startCalibration() {
+    async _startCalibration() {
         this.state = STATES.CALIBRATION;
         this._hideAllScreens();
         this._setCameraPreviewVisible(true);
+
+        if (this.settings.trackingMode === 'webgazer') {
+            try {
+                if (!this._webgazerInitialized) {
+                    await this._initWebGazer();
+                } else {
+                    webgazer.resume();
+                }
+            } catch (err) {
+                console.warn('Failed to resume/init WebGazer for calibration:', err);
+            }
+        }
+
         this.calibration.start((success) => {
             if (success) {
                 this._goToMenu();
@@ -991,11 +1130,53 @@ class Game {
         this.cameraPreview.style.display = visible ? 'block' : 'none';
     }
 
+    async _initWebGazer() {
+        if (this._webgazerInitialized) return;
+        if (!window.webgazer) {
+            console.error('WebGazer.js is not loaded.');
+            return;
+        }
+
+        webgazer.showVideo(false);
+        webgazer.showFaceOverlay(false);
+        webgazer.showFaceFeedbackBox(false);
+        webgazer.showPredictionPoints(false);
+
+        webgazer.setGazeListener((data, elapsed) => {
+            if (!data) {
+                this.webgazerDetected = false;
+                return;
+            }
+            this.webgazerDetected = true;
+            this.webgazerRawX = data.x;
+            this.webgazerRawY = data.y;
+        });
+
+        await webgazer.begin();
+        this._webgazerInitialized = true;
+    }
+
+    async _updateTrackingMode() {
+        const mode = this.settings.trackingMode;
+        if (mode === 'webgazer') {
+            if (!this._webgazerInitialized) {
+                await this._initWebGazer();
+            } else {
+                webgazer.resume();
+            }
+        } else {
+            if (this._webgazerInitialized) {
+                webgazer.pause();
+            }
+        }
+    }
+
     _defaultSettings() {
         return {
             invertX: false,
             invertY: false,
             cameraDeviceId: '',
+            trackingMode: 'mediapipe',
         };
     }
 
@@ -1009,6 +1190,7 @@ class Game {
                 invertX: Boolean(parsed.invertX),
                 invertY: Boolean(parsed.invertY),
                 cameraDeviceId: typeof parsed.cameraDeviceId === 'string' ? parsed.cameraDeviceId : '',
+                trackingMode: parsed.trackingMode === 'webgazer' ? 'webgazer' : 'mediapipe',
             };
         } catch {
             return defaults;
@@ -1096,15 +1278,41 @@ class Game {
 
     async _openSettings() {
         this._hideAllScreens();
+
+        // Backup current settings and camera ID in case Cancel is clicked
+        this._settingsBackup = { ...this.settings };
+        this._cameraBackupId = this.currentCameraDeviceId;
+
         const invertXEl = document.getElementById('invertXCheckbox');
         const invertYEl = document.getElementById('invertYCheckbox');
         if (invertXEl) invertXEl.checked = this.settings.invertX;
         if (invertYEl) invertYEl.checked = this.settings.invertY;
+
+        const trackingModeEl = document.getElementById('trackingModeSelect');
+        if (trackingModeEl) trackingModeEl.value = this.settings.trackingMode;
+
         await this._refreshCameraList();
         this._showScreen('settingsScreen');
+        this.isSettingsOpen = true;
     }
 
-    _closeSettings() {
+    async _closeSettings(cancelled = false) {
+        this.isSettingsOpen = false;
+
+        if (cancelled && this._settingsBackup) {
+            this.settings = { ...this._settingsBackup };
+            await this._updateTrackingMode();
+            if (this.currentCameraDeviceId !== this._cameraBackupId) {
+                try {
+                    await this._openCamera(this._cameraBackupId);
+                } catch (err) {
+                    console.error('Failed to revert camera selection:', err);
+                }
+            }
+        }
+        this._settingsBackup = null;
+        this._cameraBackupId = null;
+
         this._goToMenu();
     }
 
@@ -1169,7 +1377,7 @@ class Game {
             case 'Escape':
             case 'KeyP':
                 if (document.getElementById('settingsScreen')?.style.display === 'flex') {
-                    this._closeSettings();
+                    this._closeSettings(true);
                     break;
                 }
                 if (this.state === STATES.PLAYING)  this._pauseGame();
@@ -1209,12 +1417,41 @@ class Game {
 
         // Settings
         document.getElementById('settingsCancelBtn')?.addEventListener('click',
-            () => this._closeSettings());
+            () => this._closeSettings(true));
+        
+        document.getElementById('cameraSelect')?.addEventListener('change', async (e) => {
+            try {
+                await this._applyCameraSelection(e.target.value);
+            } catch (err) {
+                this._showError('Failed to switch camera.', err.message);
+            }
+        });
+
+        document.getElementById('trackingModeSelect')?.addEventListener('change', async (e) => {
+            const mode = e.target.value;
+            if (mode === 'webgazer') {
+                if (!this._webgazerInitialized) {
+                    try {
+                        await this._initWebGazer();
+                    } catch (err) {
+                        console.warn('Failed to initialize WebGazer for preview:', err);
+                    }
+                } else {
+                    webgazer.resume();
+                }
+            } else {
+                if (this._webgazerInitialized) {
+                    webgazer.pause();
+                }
+            }
+        });
+
         document.getElementById('settingsSaveBtn')?.addEventListener('click', async () => {
             const invertXEl = document.getElementById('invertXCheckbox');
             const invertYEl = document.getElementById('invertYCheckbox');
             const cameraSelectEl = document.getElementById('cameraSelect');
-            if (!invertXEl || !invertYEl || !cameraSelectEl) {
+            const trackingModeEl = document.getElementById('trackingModeSelect');
+            if (!invertXEl || !invertYEl || !cameraSelectEl || !trackingModeEl) {
                 this._showError('Settings controls unavailable.', 'Some settings controls are missing from the page. Please reload and try again.');
                 return;
             }
@@ -1222,14 +1459,17 @@ class Game {
             const invertX = invertXEl.checked;
             const invertY = invertYEl.checked;
             const cameraId = cameraSelectEl.value;
+            const trackingMode = trackingModeEl.value;
 
             try {
                 await this._applyCameraSelection(cameraId);
                 this.settings.invertX = invertX;
                 this.settings.invertY = invertY;
+                this.settings.trackingMode = trackingMode;
                 this.settings.cameraDeviceId = this.currentCameraDeviceId || cameraId || '';
                 this._saveSettings();
-                this._closeSettings();
+                await this._updateTrackingMode();
+                this._closeSettings(false);
             } catch (err) {
                 this._showError('Failed to switch camera.', err.message);
             }

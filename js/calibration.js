@@ -75,6 +75,14 @@ export class CalibrationSystem {
         this._phaseStart = performance.now();
         this._buffer     = [];
         this._data       = [];
+
+        if (window.webgazer && window.game?.settings?.trackingMode === 'webgazer') {
+            try {
+                window.webgazer.clearData();
+            } catch (err) {
+                console.warn('Failed to clear WebGazer data:', err);
+            }
+        }
     }
 
     /**
@@ -103,6 +111,16 @@ export class CalibrationSystem {
                 irisX: this.eyeTracker.rawGazeX,
                 irisY: this.eyeTracker.rawGazeY,
             });
+        }
+
+        if (window.webgazer && window.game?.settings?.trackingMode === 'webgazer') {
+            const xPixels = current.x * window.innerWidth;
+            const yPixels = current.y * window.innerHeight;
+            try {
+                window.webgazer.recordScreenPosition(xPixels, yPixels, 'click');
+            } catch (err) {
+                // Ignore silent errors during recordScreenPosition
+            }
         }
 
         if (elapsed >= COLLECT_MS) {

@@ -223,6 +223,90 @@ html, body {
     margin-right: 0.5rem;
 }
 
+/* ── Settings Screen Enhancement ──────────────── */
+.settings-overlay-content {
+    max-width: 680px;
+    text-align: left;
+}
+
+.settings-overlay-content h2 {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.settings-container {
+    display: flex;
+    gap: 2rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.settings-form {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+}
+
+.settings-preview-area {
+    width: 240px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.settings-preview-area .camera-label {
+    width: 100%;
+    text-align: center;
+    padding: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: rgba(0, 229, 255, 0.12);
+    color: var(--accent);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#settingsCameraOverlay {
+    display: block;
+    width: 240px;
+    height: 180px;
+    background: #000;
+}
+
+.preview-status {
+    width: 100%;
+    padding: 6px;
+    font-size: 0.75rem;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(0, 0, 0, 0.25);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@media (max-width: 640px) {
+    .settings-container {
+        flex-direction: column;
+        align-items: center;
+    }
+    .settings-form {
+        width: 100%;
+    }
+    .settings-preview-area {
+        width: 100%;
+        max-width: 280px;
+    }
+    #settingsCameraOverlay {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 4 / 3;
+    }
+}
+
 /* ── Leaderboard ──────────────────────────── */
 #leaderboard {
     border-top: 1px solid rgba(255,255,255,0.1);
@@ -553,3 +637,8 @@ html, body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
 ::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.3); border-radius: 3px; }
+
+/* ── WebGazer UI Hide ─────────────────────── */
+#webgazerVideoFeed, #webgazerVideoCanvas, #webgazerFaceOverlay, #webgazerFaceFeedbackBox, #webgazerGazeDot {
+    display: none !important;
+}
