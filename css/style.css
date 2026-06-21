@@ -37,7 +37,11 @@ html, body {
 }
 
 #webcamVideo {
-    display: none;
+    position: fixed !important;
+    top: -9999px !important;
+    left: -9999px !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 /* ── Overlay base ─────────────────────────── */
@@ -198,7 +202,7 @@ html, body {
     margin-bottom: 0.4rem;
 }
 
-#cameraSelect {
+#cameraSelect, #trackingModeSelect, #aimAssistSelect, #triggerModeSelect {
     width: 100%;
     padding: 0.7rem 0.8rem;
     border-radius: 8px;
@@ -720,5 +724,64 @@ html, body {
 
 /* ── WebGazer UI Hide ─────────────────────── */
 #webgazerVideoFeed, #webgazerVideoCanvas, #webgazerFaceOverlay, #webgazerFaceFeedbackBox, #webgazerGazeDot {
-    display: none !important;
+    display: block !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 320px !important;
+    height: 240px !important;
+    opacity: 0.001 !important;
+    pointer-events: none !important;
+    z-index: -9999 !important;
 }
+
+/* ── Separation of concerns & cleanup classes ── */
+.loading-hint {
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.35);
+    line-height: 1.6;
+}
+
+.settings-btn-area {
+    margin-top: 1.5rem;
+}
+
+#resumeBtn {
+    padding: 0.6rem 1.4rem;
+    border: 2px solid rgba(0, 229, 255, 0.4);
+    border-radius: 8px;
+    background: rgba(0, 229, 255, 0.08);
+    color: #e0f0ff;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#resumeBtn:hover {
+    background: rgba(0, 229, 255, 0.2);
+    border-color: var(--accent);
+    box-shadow: 0 0 16px rgba(0, 229, 255, 0.3);
+    transform: translateY(-1px);
+}
+
+/* ── Menu description styling ── */
+.menu-desc {
+    font-weight: 400;
+    opacity: 0.6;
+}
+
+/* ── Initial hidden states for dynamic components ── */
+#menuScreen,
+#settingsScreen,
+#gameoverScreen,
+#pauseScreen,
+#hud,
+#cameraPreview,
+#healthBar,
+#keyboardHint,
+#menuGazeReticle {
+    display: none;
+}
+

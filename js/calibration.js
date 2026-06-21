@@ -52,10 +52,13 @@ export class CalibrationSystem {
         this._data      = [];            // {irisX,irisY,screenX,screenY}
 
         // Affine transform coefficients  [a, b, c]
-        this.transformX = null;          // screenX = a·ix + b·iy + c
-        this.transformY = null;          // screenY = d·ix + e·iy + f
+        this.transformX = null;          // screenX = a·ix + b·iy + c (mediapipe)
+        this.transformY = null;          // screenY = d·ix + e·iy + f (mediapipe)
+        this.webgazerTransformX = null;  // screenX = a·wx + b·wy + c (webgazer)
+        this.webgazerTransformY = null;  // screenY = d·wx + e·wy + f (webgazer)
 
         this._onComplete = null;
+        this._lastWebGazerRecordTime = 0;
 
         // Try to restore a previous calibration immediately
         this._loadFromStorage();
@@ -75,6 +78,7 @@ export class CalibrationSystem {
         this._phaseStart = performance.now();
         this._buffer     = [];
         this._data       = [];
+        this._lastWebGazerRecordTime = 0;
 
         if (window.webgazer && window.game?.settings?.trackingMode === 'webgazer') {
             try {
@@ -106,20 +110,34 @@ export class CalibrationSystem {
         }
 
         // --- collect phase ---
-        if (this.eyeTracker.faceDetected) {
-            this._buffer.push({
-                irisX: this.eyeTracker.rawGazeX,
-                irisY: this.eyeTracker.rawGazeY,
-            });
+        const isWebGazer = window.game?.settings?.trackingMode === 'webgazer';
+        if (isWebGazer) {
+            if (window.game?.webgazerDetected) {
+                this._buffer.push({
+                    irisX: window.game.webgazerRawX / window.innerWidth,
+                    irisY: window.game.webgazerRawY / window.innerHeight,
+                });
+            }
+        } else {
+            if (this.eyeTracker.faceDetected) {
+                this._buffer.push({
+                    irisX: this.eyeTracker.rawGazeX,
+                    irisY: this.eyeTracker.rawGazeY,
+                });
+            }
         }
 
-        if (window.webgazer && window.game?.settings?.trackingMode === 'webgazer') {
-            const xPixels = current.x * window.innerWidth;
-            const yPixels = current.y * window.innerHeight;
-            try {
-                window.webgazer.recordScreenPosition(xPixels, yPixels, 'click');
-            } catch (err) {
-                // Ignore silent errors during recordScreenPosition
+        if (window.webgazer && isWebGazer) {
+            const now = performance.now();
+            if (now - this._lastWebGazerRecordTime >= 400) {
+                this._lastWebGazerRecordTime = now;
+                const xPixels = current.x * window.innerWidth;
+                const yPixels = current.y * window.innerHeight;
+                try {
+                    window.webgazer.recordScreenPosition(xPixels, yPixels, 'click');
+                } catch (err) {
+                    // Ignore silent errors during recordScreenPosition
+                }
             }
         }
 
@@ -241,7 +259,8 @@ export class CalibrationSystem {
         }
 
         // Face-detection status
-        const detected = this.eyeTracker.faceDetected;
+        const isWebGazer = window.game?.settings?.trackingMode === 'webgazer';
+        const detected = isWebGazer ? window.game.webgazerDetected : this.eyeTracker.faceDetected;
         ctx.font      = '16px Arial';
         ctx.textAlign = 'center';
         ctx.fillStyle = detected ? '#00ff88' : '#ff4444';
@@ -260,11 +279,25 @@ export class CalibrationSystem {
      * @returns {{ x: number, y: number }}
      */
     applyTransform(irisX, irisY) {
-        if (!this.transformX || !this.transformY) {
-            return { x: 1 - irisX, y: irisY };
+        const mode = window.game?.settings?.trackingMode || 'mediapipe';
+        const tX = mode === 'webgazer' ? this.webgazerTransformX : this.transformX;
+        const tY = mode === 'webgazer' ? this.webgazerTransformY : this.transformY;
+
+        if (!tX || !tY) {
+            if (mode === 'webgazer') {
+                return {
+                    x: Math.max(0, Math.min(1, irisX)),
+                    y: Math.max(0, Math.min(1, irisY)),
+                };
+            }
+            // Fallback for relative offsets: center at 0.5, scale by -2.5 for X and 3.0 for Y
+            return {
+                x: Math.max(0, Math.min(1, -2.5 * irisX + 1.75)),
+                y: Math.max(0, Math.min(1, 3.0 * irisY - 1.0)),
+            };
         }
-        const [a, b, c] = this.transformX;
-        const [d, e, f] = this.transformY;
+        const [a, b, c] = tX;
+        const [d, e, f] = tY;
         return {
             x: Math.max(0, Math.min(1, a * irisX + b * irisY + c)),
             y: Math.max(0, Math.min(1, d * irisX + e * irisY + f)),
@@ -272,6 +305,10 @@ export class CalibrationSystem {
     }
 
     isCalibrated() {
+        const mode = window.game?.settings?.trackingMode || 'mediapipe';
+        if (mode === 'webgazer') {
+            return this.webgazerTransformX !== null && this.webgazerTransformY !== null;
+        }
         return this.transformX !== null && this.transformY !== null;
     }
 
@@ -282,9 +319,22 @@ export class CalibrationSystem {
     _finish() {
         this._active = false;
 
+        const isWebGazer = window.game?.settings?.trackingMode === 'webgazer';
+
+        if (isWebGazer) {
+            // WebGazer trains its own non-linear regression model directly during calibration
+            // via webgazer.recordScreenPosition. Applying an affine transform on top of its
+            // prediction is a double-calibration error that distorts and squishes the gaze coordinates.
+            this.webgazerTransformX = [1.0, 0, 0];
+            this.webgazerTransformY = [0, 1.0, 0];
+            this._saveToStorage();
+            this._onComplete?.(true);
+            return;
+        }
+
         if (this._data.length >= 4) {
             try {
-                this._computeAffineTransform(this._data);
+                this._computeAffineTransform(this._data, isWebGazer);
                 this._saveToStorage();
                 this._onComplete?.(true);
                 return;
@@ -292,9 +342,10 @@ export class CalibrationSystem {
                 console.warn('Calibration solve failed:', err);
             }
         }
-        // Not enough valid data — use identity fallback
-        this.transformX = [-1, 0, 1];   // screen_x ≈ 1 - iris_x  (mirror)
-        this.transformY = [0, 1, 0];
+
+        // Not enough valid data — use identity fallback designed for relative offsets
+        this.transformX = [-2.5, 0, 1.75];   // screen_x ≈ -2.5 * iris_x + 1.75
+        this.transformY = [0, 3.0, -1.0];    // screen_y ≈ 3.0 * iris_y - 1.0
         this._onComplete?.(false);
     }
 
@@ -302,7 +353,7 @@ export class CalibrationSystem {
      * Least-squares affine transform.
      * Minimises Σ(aX·iX + bX·iY + cX − sX)² and same for Y.
      */
-    _computeAffineTransform(data) {
+    _computeAffineTransform(data, isWebGazer = false) {
         let sumIx2 = 0, sumIy2 = 0, sumIxIy = 0;
         let sumIx  = 0, sumIy  = 0;
         let sumSxIx = 0, sumSxIy = 0, sumSx = 0;
@@ -329,30 +380,59 @@ export class CalibrationSystem {
             [sumIx,  sumIy,  n    ],
         ];
 
-        this.transformX = _solveLinear3(M, [sumSxIx, sumSxIy, sumSx]);
-        this.transformY = _solveLinear3(M, [sumSyIx, sumSyIy, sumSy]);
+        const tX = _solveLinear3(M, [sumSxIx, sumSxIy, sumSx]);
+        const tY = _solveLinear3(M, [sumSyIx, sumSyIy, sumSy]);
+
+        if (isWebGazer) {
+            this.webgazerTransformX = tX;
+            this.webgazerTransformY = tY;
+        } else {
+            this.transformX = tX;
+            this.transformY = tY;
+        }
     }
 
     _saveToStorage() {
         try {
-            localStorage.setItem('eyeAimArena_cal', JSON.stringify({
+            localStorage.setItem('eyeAimArena_cal_v3', JSON.stringify({
                 transformX: this.transformX,
                 transformY: this.transformY,
+                webgazerTransformX: this.webgazerTransformX,
+                webgazerTransformY: this.webgazerTransformY,
             }));
         } catch { /* storage unavailable */ }
     }
 
     _loadFromStorage() {
         try {
-            const raw = localStorage.getItem('eyeAimArena_cal');
-            if (!raw) return false;
-            const { transformX, transformY } = JSON.parse(raw);
-            if (transformX && transformY) {
-                this.transformX = transformX;
-                this.transformY = transformY;
+            const raw = localStorage.getItem('eyeAimArena_cal_v3');
+            if (raw) {
+                const { transformX, transformY, webgazerTransformX, webgazerTransformY } = JSON.parse(raw);
+                if (transformX && transformY) {
+                    this.transformX = transformX;
+                    this.transformY = transformY;
+                }
+                if (webgazerTransformX && webgazerTransformY) {
+                    this.webgazerTransformX = webgazerTransformX;
+                    this.webgazerTransformY = webgazerTransformY;
+                }
                 return true;
             }
         } catch { /* corrupted data */ }
+
+        // Legacy fallback
+        try {
+            const rawLegacy = localStorage.getItem('eyeAimArena_cal_v2');
+            if (rawLegacy) {
+                const { transformX, transformY } = JSON.parse(rawLegacy);
+                if (transformX && transformY) {
+                    this.transformX = transformX;
+                    this.transformY = transformY;
+                    return true;
+                }
+            }
+        } catch { /* corrupted data */ }
+
         return false;
     }
 }

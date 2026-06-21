@@ -25,7 +25,7 @@
             <div id="loadProgress" class="progress-fill"></div>
         </div>
         <p id="loadStatus">Starting…</p>
-        <p style="margin-top:1rem;font-size:0.8rem;color:rgba(255,255,255,0.35);line-height:1.6">
+        <p class="loading-hint">
             Allow camera access when prompted.<br>
             All processing runs locally in your browser.
         </p>
@@ -33,15 +33,15 @@
 </div>
 
 <!-- ── Main menu ───────────────────────────────────────── -->
-<div id="menuScreen" class="overlay" style="display:none">
+<div id="menuScreen" class="overlay">
     <div class="overlay-content">
         <h1>👁️ Eye Aim Arena</h1>
         <p class="subtitle">Aim with your eyes &nbsp;·&nbsp; Shoot with a blink</p>
 
         <div class="menu-buttons">
-            <button id="timeAttackBtn">⏱️ &nbsp;Time Attack &nbsp;<small style="font-weight:400;opacity:.6">60 s sprint</small></button>
-            <button id="survivalBtn">💀 &nbsp;Survival &nbsp;<small style="font-weight:400;opacity:.6">don't let targets escape</small></button>
-            <button id="precisionBtn">🎯 &nbsp;Precision &nbsp;<small style="font-weight:400;opacity:.6">20 rounds, small targets</small></button>
+            <button id="timeAttackBtn">⏱️ &nbsp;Time Attack &nbsp;<small class="menu-desc">60 s sprint</small></button>
+            <button id="survivalBtn">💀 &nbsp;Survival &nbsp;<small class="menu-desc">don't let targets escape</small></button>
+            <button id="precisionBtn">🎯 &nbsp;Precision &nbsp;<small class="menu-desc">20 rounds, small targets</small></button>
             <button id="settingsBtn">⚙️ &nbsp;Settings</button>
             <button id="calibrateBtn">🔧 &nbsp;Recalibrate eye tracking</button>
         </div>
@@ -54,7 +54,7 @@
 </div>
 
 <!-- ── Settings screen ─────────────────────────────────── -->
-<div id="settingsScreen" class="overlay" style="display:none">
+<div id="settingsScreen" class="overlay">
     <div class="overlay-content settings-overlay-content">
         <h2>⚙️ Settings</h2>
         <div class="settings-container">
@@ -72,6 +72,23 @@
                     <select id="cameraSelect"></select>
                     <p class="settings-hint">Select which camera to use for tracking.</p>
                 </div>
+                <div class="settings-group">
+                    <label for="aimAssistSelect">Aim Assist (Hitbox Buffer)</label>
+                    <select id="aimAssistSelect">
+                        <option value="high">High Assist (Highly Recommended)</option>
+                        <option value="normal">Normal Assist (Recommended)</option>
+                        <option value="off">Off (Strict Hitbox - Hardcore)</option>
+                    </select>
+                    <p class="settings-hint">Compensates for eye-tracking jitter, webcam noise, and physiological eye movement during blinks.</p>
+                </div>
+                <div class="settings-group">
+                    <label for="triggerModeSelect">Shooting Mode</label>
+                    <select id="triggerModeSelect">
+                        <option value="blink">Manual (Blink / Spacebar / Click)</option>
+                        <option value="auto">Auto-Shoot (Trigger on Hover)</option>
+                    </select>
+                    <p class="settings-hint">"Auto-Shoot" instantly pops targets when your gaze hovers over them, requiring no blinking or keys.</p>
+                </div>
                 <div class="settings-group settings-toggles">
                     <label for="invertXCheckbox"><input type="checkbox" id="invertXCheckbox"> Invert left / right</label>
                     <label for="invertYCheckbox"><input type="checkbox" id="invertYCheckbox"> Invert up / down</label>
@@ -84,7 +101,7 @@
                 <div id="settingsEyeStatus" class="preview-status">Eye: tracking…</div>
             </div>
         </div>
-        <div class="gameover-buttons" style="margin-top: 1.5rem;">
+        <div class="gameover-buttons settings-btn-area">
             <button id="settingsSaveBtn">Save</button>
             <button id="settingsCancelBtn">Cancel</button>
         </div>
@@ -92,7 +109,7 @@
 </div>
 
 <!-- ── Game Over screen ────────────────────────────────── -->
-<div id="gameoverScreen" class="overlay" style="display:none">
+<div id="gameoverScreen" class="overlay">
     <div class="overlay-content">
         <h2>Game Over</h2>
         <div id="finalStats"></div>
@@ -104,15 +121,12 @@
 </div>
 
 <!-- ── Pause screen ─────────────────────────────────────── -->
-<div id="pauseScreen" style="display:none">
+<div id="pauseScreen">
     <div class="pause-box">
         <h2>⏸ Paused</h2>
         <p>Press <kbd>P</kbd> or <kbd>Esc</kbd> to resume</p>
         <br>
-        <button id="resumeBtn" style="
-            padding:.6rem 1.4rem;border:2px solid rgba(0,229,255,.4);
-            border-radius:8px;background:rgba(0,229,255,.08);color:#e0f0ff;
-            font-size:1rem;font-weight:700;cursor:pointer">
+        <button id="resumeBtn">
             ▶ Resume
         </button>
     </div>
@@ -123,12 +137,12 @@
     <div class="error-box">
         <h2>⚠ Error</h2>
         <p id="errorDetail">An unexpected error occurred.</p>
-        <button id="retryBtn" onclick="location.reload()">Reload</button>
+        <button id="retryBtn">Reload</button>
     </div>
 </div>
 
 <!-- ── HUD (shown during gameplay) ─────────────────────── -->
-<div id="hud" style="display:none">
+<div id="hud">
     <div id="hudLeft">
         <span id="scoreDisplay"   class="hud-value">Score: 0</span>
         <span id="modeDisplay"    class="hud-value">–</span>
@@ -141,13 +155,13 @@
 </div>
 
 <!-- In-game camera preview -->
-<div id="cameraPreview" style="display:none">
+<div id="cameraPreview">
     <div class="camera-label">Camera + Eye Position</div>
     <canvas id="cameraOverlay" width="240" height="180"></canvas>
 </div>
 
 <!-- Survival lives bar -->
-<div id="healthBar" style="display:none">
+<div id="healthBar">
     <div class="health-label">Lives</div>
     <div class="health-track">
         <div id="healthFill"></div>
@@ -155,12 +169,12 @@
 </div>
 
 <!-- Keyboard hint -->
-<div id="keyboardHint" style="display:none">
+<div id="keyboardHint">
     Blink to shoot &nbsp;·&nbsp; <kbd>Space</kbd> / click as fallback &nbsp;·&nbsp; <kbd>P</kbd> to pause
 </div>
 
 <!-- Menu Gaze Reticle -->
-<div id="menuGazeReticle" class="menu-gaze-reticle" style="display:none">
+<div id="menuGazeReticle" class="menu-gaze-reticle">
     <div class="reticle-dot"></div>
     <div class="reticle-ring"></div>
     <div class="reticle-line reticle-line-h"></div>

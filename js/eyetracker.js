@@ -33,6 +33,8 @@ export class EyeTracker {
         this.gazeY    = 0.5;
         this.rawGazeX = 0.5;
         this.rawGazeY = 0.5;
+        this.absoluteIrisX = 0.5;
+        this.absoluteIrisY = 0.5;
 
         // Blink state
         this.isBlinking       = false;
@@ -108,12 +110,31 @@ export class EyeTracker {
             this.landmarks    = results.faceLandmarks[0];
             this.faceDetected = true;
 
-            // --- Iris centre (average of left and right) ---
+            // --- Absolute Iris centre (for camera preview overlay) ---
             const lIris = this.landmarks[LEFT_IRIS_CENTER];
             const rIris = this.landmarks[RIGHT_IRIS_CENTER];
+            this.absoluteIrisX = (lIris.x + rIris.x) / 2;
+            this.absoluteIrisY = (lIris.y + rIris.y) / 2;
 
-            this.rawGazeX = (lIris.x + rIris.x) / 2;
-            this.rawGazeY = (lIris.y + rIris.y) / 2;
+            // --- Relative Gaze (iris relative to eye corners) ---
+            // Left eye (on the right side of the image): inner is 33 (left/smaller x), outer is 133 (right/larger x)
+            const lLeft = this.landmarks[33];
+            const lRight = this.landmarks[133];
+            const lWidth = lRight.x - lLeft.x;
+            const lGazeX = lWidth < 1e-6 ? 0.5 : (lIris.x - lLeft.x) / lWidth;
+            const lMidY = (lLeft.y + lRight.y) / 2;
+            const lGazeY = lWidth < 1e-6 ? 0.5 : (lIris.y - lMidY) / lWidth + 0.5;
+
+            // Right eye (on the left side of the image): outer is 362 (left/smaller x), inner is 263 (right/larger x)
+            const rLeft = this.landmarks[362];
+            const rRight = this.landmarks[263];
+            const rWidth = rRight.x - rLeft.x;
+            const rGazeX = rWidth < 1e-6 ? 0.5 : (rIris.x - rLeft.x) / rWidth;
+            const rMidY = (rLeft.y + rRight.y) / 2;
+            const rGazeY = rWidth < 1e-6 ? 0.5 : (rIris.y - rMidY) / rWidth + 0.5;
+
+            this.rawGazeX = (lGazeX + rGazeX) / 2;
+            this.rawGazeY = (lGazeY + rGazeY) / 2;
 
             // --- Exponential moving average smoothing ---
             this.gazeX += (this.rawGazeX - this.gazeX) * this.smoothingAlpha;
@@ -202,5 +223,20 @@ export class EyeTracker {
         const c = this.landmarks[LEFT_IRIS_CENTER];
         const e = this.landmarks[469]; // left iris edge point
         return Math.hypot(c.x - e.x, c.y - e.y);
+    }
+
+    /** Cleanly close and release the MediaPipe Face Landmarker instance. */
+    async close() {
+        if (this.faceLandmarker) {
+            try {
+                await this.faceLandmarker.close();
+            } catch (err) {
+                console.warn('Error closing face landmarker:', err);
+            }
+            this.faceLandmarker = null;
+        }
+        this.faceDetected = false;
+        this.landmarks = null;
+        this._blinkCallbacks = [];
     }
 }
