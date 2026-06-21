@@ -39,6 +39,7 @@
         <p class="subtitle">Aim with your eyes &nbsp;·&nbsp; Shoot with a blink</p>
 
         <div class="menu-buttons">
+            <button id="zenBtn">🌸 &nbsp;Zen Practice &nbsp;<small class="menu-desc">infinite lives, relaxed training</small></button>
             <button id="timeAttackBtn">⏱️ &nbsp;Time Attack &nbsp;<small class="menu-desc">60 s sprint</small></button>
             <button id="survivalBtn">💀 &nbsp;Survival &nbsp;<small class="menu-desc">don't let targets escape</small></button>
             <button id="precisionBtn">🎯 &nbsp;Precision &nbsp;<small class="menu-desc">20 rounds, small targets</small></button>
@@ -86,13 +87,86 @@
                     <select id="triggerModeSelect">
                         <option value="blink">Manual (Blink / Spacebar / Click)</option>
                         <option value="auto">Auto-Shoot (Trigger on Hover)</option>
+                        <option value="dwell_short">Dwell Trigger (Hold gaze 0.5s - Easy)</option>
+                        <option value="dwell_medium">Dwell Trigger (Hold gaze 1.0s - Recommended)</option>
+                        <option value="dwell_long">Dwell Trigger (Hold gaze 1.5s - Steady Focus)</option>
                     </select>
-                    <p class="settings-hint">"Auto-Shoot" instantly pops targets when your gaze hovers over them, requiring no blinking or keys.</p>
+                    <p class="settings-hint">"Dwell Trigger" lets the child pop targets simply by holding their gaze steady on them, training focused attention.</p>
+                </div>
+                <div class="settings-group accessibility-divider" style="margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 15px;">
+                    <h4 style="color: var(--green); margin-bottom: 10px; font-size: 1.05rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">♿ Rehabilitation & Accessibility</h4>
+                </div>
+                <div class="settings-group">
+                    <label for="calibrationPointsSelect">Calibration Quality (Number of Points)</label>
+                    <select id="calibrationPointsSelect">
+                        <option value="9">Standard (9-Point Grid - High Accuracy)</option>
+                        <option value="5">Medium (5-Point Cross - Balanced)</option>
+                        <option value="3">Quick (3-Point Triangle - Low Fatigue)</option>
+                    </select>
+                    <p class="settings-hint">Reduces the number of targets during calibration. 3-point calibration is highly recommended for children who get tired easily or have highly restricted head/eye movements.</p>
+                </div>
+                <div class="settings-group">
+                    <label for="gazeSmoothingSelect">Eye-Tracking Smoothing (Tremor Filter)</label>
+                    <select id="gazeSmoothingSelect">
+                        <option value="normal">Normal (Responsive)</option>
+                        <option value="high">High (Smooth / Low Jitter)</option>
+                        <option value="heavy">Heavy (Rehab / Tremor Filter - Very Stable)</option>
+                    </select>
+                    <p class="settings-hint">Strongly dampens involuntary head tremors or eye jitter, making targeting easier for paralyzed children.</p>
+                </div>
+                <div class="settings-group">
+                    <label for="gazeSensitivitySelect">Movement Sensitivity (Range Amplification)</label>
+                    <select id="gazeSensitivitySelect">
+                        <option value="1.0">Standard (1.0x)</option>
+                        <option value="1.4">Amplified (1.4x - Good for limited neck turn)</option>
+                        <option value="1.8">Highly Amplified (1.8x - Minor head movements)</option>
+                        <option value="2.2">Maximum Amplification (2.2x - Very narrow motion)</option>
+                    </select>
+                    <p class="settings-hint">Multiplies tracking coordinate ranges. If the child has extremely restricted eye or neck range of motion, a higher sensitivity will allow reaching the whole screen with minimal effort.</p>
+                </div>
+                <div class="settings-group">
+                    <label for="safeAreaMarginSelect">Comfortable Spawn Area (Neck Range Limit)</label>
+                    <select id="safeAreaMarginSelect">
+                        <option value="0.09">Full Screen (Standard)</option>
+                        <option value="0.18">Slightly Restricted (18% border margin)</option>
+                        <option value="0.28">Medium Comfort Zone (28% border margin)</option>
+                        <option value="0.38">Central Safe Zone (38% border margin - Highly Restricted)</option>
+                    </select>
+                    <p class="settings-hint">Shrinks the random target generation area. Restricting targets to the screen center accommodates limited neck mobility and avoids strain.</p>
+                </div>
+                <div class="settings-group">
+                    <label for="targetScaleSelect">Target Size (Low Vision / Easy Aim)</label>
+                    <select id="targetScaleSelect">
+                        <option value="1.0">Standard Size</option>
+                        <option value="1.5">Large (1.5x - Recommended for Rehab)</option>
+                        <option value="2.0">Extra Large (2.0x)</option>
+                        <option value="2.5">Giant (2.5x)</option>
+                    </select>
+                    <p class="settings-hint">Scales target visual sizes and hitboxes, helping children succeed and preventing frustration.</p>
+                </div>
+                <div class="settings-group">
+                    <label for="targetThemeSelect">Target Visual Theme</label>
+                    <select id="targetThemeSelect">
+                        <option value="bubbles">Pastel Bubbles (Calm & Clean)</option>
+                        <option value="emojis">Friendly Animals (🐶 🐱 🐻 🐸 🐼)</option>
+                        <option value="stars">Glowing Stars (⭐ 🌟 ✨)</option>
+                    </select>
+                    <p class="settings-hint">Changes target appearance. Cute animal emojis or stars are highly engaging for younger children and encourage gaze tracking.</p>
                 </div>
                 <div class="settings-group settings-toggles">
                     <label for="invertXCheckbox"><input type="checkbox" id="invertXCheckbox"> Invert left / right</label>
                     <label for="invertYCheckbox"><input type="checkbox" id="invertYCheckbox"> Invert up / down</label>
-                    <p class="settings-hint">Use these if aiming moves in the opposite direction.</p>
+                    <label for="voiceGuidanceCheckbox" style="margin-top: 10px; display: block;"><input type="checkbox" id="voiceGuidanceCheckbox" checked> Voice Guide & Milestones (Speech Assist)</label>
+                    <p class="settings-hint">Uses browser speech synthesis to read instructions during calibration and celebrate milestones (e.g. "Great job!").</p>
+                </div>
+                <div class="settings-group">
+                    <label for="voiceLanguageSelect">Speech Language (語音語言)</label>
+                    <select id="voiceLanguageSelect">
+                        <option value="en">English</option>
+                        <option value="zh-HK" selected>Cantonese / 廣東話 (Hong Kong) (default)</option>
+                        <option value="zh-CN">Mandarin / 普通話 (Standard Chinese)</option>
+                    </select>
+                    <p class="settings-hint">Select the language used for instructions and verbal praise. (選擇校準及遊戲時的語音提示語言)</p>
                 </div>
             </div>
             <div class="settings-preview-area">
@@ -126,9 +200,14 @@
         <h2>⏸ Paused</h2>
         <p>Press <kbd>P</kbd> or <kbd>Esc</kbd> to resume</p>
         <br>
-        <button id="resumeBtn">
-            ▶ Resume
-        </button>
+        <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 200px; margin: 0 auto;">
+            <button id="resumeBtn">
+                ▶ Resume
+            </button>
+            <button id="pauseMenuBtn" class="secondary-btn" style="padding: 0.8rem; font-size: 0.95rem; border-radius: 8px; font-weight: bold; cursor: pointer; border: 2px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); color: var(--text);">
+                ☰ Quit to Menu
+            </button>
+        </div>
     </div>
 </div>
 

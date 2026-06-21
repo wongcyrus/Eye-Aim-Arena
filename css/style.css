@@ -202,7 +202,7 @@ html, body {
     margin-bottom: 0.4rem;
 }
 
-#cameraSelect, #trackingModeSelect, #aimAssistSelect, #triggerModeSelect {
+#cameraSelect, #trackingModeSelect, #aimAssistSelect, #triggerModeSelect, #gazeSmoothingSelect, #safeAreaMarginSelect, #targetScaleSelect {
     width: 100%;
     padding: 0.7rem 0.8rem;
     border-radius: 8px;
@@ -230,12 +230,19 @@ html, body {
 /* ── Settings Screen Enhancement ──────────────── */
 .settings-overlay-content {
     max-width: 680px;
+    width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
     text-align: left;
+    padding: 1.5rem 2rem;
+    box-sizing: border-box;
 }
 
 .settings-overlay-content h2 {
     text-align: center;
-    margin-bottom: 1.5rem;
+    margin-top: 0;
+    margin-bottom: 1.2rem;
 }
 
 .settings-container {
@@ -243,6 +250,9 @@ html, body {
     gap: 2rem;
     align-items: flex-start;
     margin-bottom: 1rem;
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 0.5rem; /* Prevent layout shift or overlapping with scrollbar */
 }
 
 .settings-form {
@@ -253,6 +263,8 @@ html, body {
 }
 
 .settings-preview-area {
+    position: sticky;
+    top: 0;
     width: 240px;
     display: flex;
     flex-direction: column;
@@ -301,6 +313,7 @@ html, body {
         width: 100%;
     }
     .settings-preview-area {
+        position: static;
         width: 100%;
         max-width: 280px;
     }
@@ -744,7 +757,7 @@ html, body {
 }
 
 .settings-btn-area {
-    margin-top: 1.5rem;
+    margin-top: 1rem;
 }
 
 #resumeBtn {
@@ -764,6 +777,29 @@ html, body {
     border-color: var(--accent);
     box-shadow: 0 0 16px rgba(0, 229, 255, 0.3);
     transform: translateY(-1px);
+}
+
+#zenBtn {
+    background: rgba(0, 255, 136, 0.08) !important;
+    border-color: rgba(0, 255, 136, 0.4) !important;
+}
+
+#zenBtn:hover {
+    background: rgba(0, 255, 136, 0.2) !important;
+    border-color: var(--green) !important;
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.3) !important;
+}
+
+.secondary-btn {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: var(--text) !important;
+}
+
+.secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.1) !important;
 }
 
 /* ── Menu description styling ── */

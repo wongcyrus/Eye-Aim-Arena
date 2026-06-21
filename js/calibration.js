@@ -18,6 +18,33 @@ const GRID_MARGIN = 0.1;          // 10 % padding from screen edges
 const COUNTDOWN_MS = 1200;        // look-at-dot phase
 const COLLECT_MS   = 2000;        // data-collection phase
 
+const POINT_DESCRIPTIONS_9 = [
+    "top left",
+    "top center",
+    "top right",
+    "middle left",
+    "center",
+    "middle right",
+    "bottom left",
+    "bottom center",
+    "bottom right"
+];
+
+const POINT_DESCRIPTIONS_5 = [
+    "center",
+    "middle left",
+    "middle right",
+    "top center",
+    "bottom center"
+];
+
+const POINT_DESCRIPTIONS_3 = [
+    "center",
+    "left side, slightly up",
+    "right side, slightly down"
+];
+
+
 /** Generate the 9 screen positions in reading order (row-major). */
 function makeCalibrationPoints() {
     const pts = [];
@@ -80,12 +107,51 @@ export class CalibrationSystem {
         this._data       = [];
         this._lastWebGazerRecordTime = 0;
 
+        // Dynamically generate points based on current settings
+        const margin = parseFloat(window.game?.settings?.safeAreaMargin || '0.09');
+        const calPointsMode = parseInt(window.game?.settings?.calibrationPoints || '9');
+
+        if (calPointsMode === 3) {
+            // Triangle layout to avoid collinearity and singularity issues in the affine solver
+            this.points = [
+                { x: 0.5, y: 0.5 },                  // Center
+                { x: margin, y: 0.5 - 0.15 },        // Left, slightly up
+                { x: 1 - margin, y: 0.5 + 0.15 }     // Right, slightly down
+            ];
+        } else if (calPointsMode === 5) {
+            // Cross shape layout
+            this.points = [
+                { x: 0.5, y: 0.5 },                  // Center
+                { x: margin, y: 0.5 },               // Left
+                { x: 1 - margin, y: 0.5 },           // Right
+                { x: 0.5, y: margin },               // Top
+                { x: 0.5, y: 1 - margin }            // Bottom
+            ];
+        } else {
+            // Standard 9-Point Grid
+            this.points = [];
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3; col++) {
+                    this.points.push({
+                        x: margin + (col / 2) * (1 - 2 * margin),
+                        y: margin + (row / 2) * (1 - 2 * margin),
+                    });
+                }
+            }
+        }
+
         if (window.webgazer && window.game?.settings?.trackingMode === 'webgazer') {
             try {
                 window.webgazer.clearData();
             } catch (err) {
                 console.warn('Failed to clear WebGazer data:', err);
             }
+        }
+
+        if (window.game && window.game._speak) {
+            const calPointsMode = parseInt(window.game?.settings?.calibrationPoints || '9');
+            const modeText = calPointsMode === 3 ? "Quick 3 point" : (calPointsMode === 5 ? "Medium 5 point" : "Standard 9 point");
+            window.game._speak(`Let's calibrate with ${modeText} mode. Look at the yellow star in the center.`);
         }
     }
 
@@ -151,8 +217,26 @@ export class CalibrationSystem {
 
             this._pointIdx++;
             if (this._pointIdx >= this.points.length) {
+                if (window.game && window.game._speak) {
+                    window.game._speak("Calibration complete! Great job!");
+                }
                 this._finish();
             } else {
+                if (window.game && window.game._speak) {
+                    const praises = ["Good", "Nice", "Keep holding", "Perfect", "Great", "Excellent", "Well done", "Almost there"];
+                    const praise = praises[this._pointIdx % praises.length];
+                    
+                    const calPointsMode = parseInt(window.game?.settings?.calibrationPoints || '9');
+                    let nextDesc = "next target";
+                    if (calPointsMode === 3) {
+                        nextDesc = POINT_DESCRIPTIONS_3[this._pointIdx] || "next target";
+                    } else if (calPointsMode === 5) {
+                        nextDesc = POINT_DESCRIPTIONS_5[this._pointIdx] || "next target";
+                    } else {
+                        nextDesc = POINT_DESCRIPTIONS_9[this._pointIdx] || "next target";
+                    }
+                    window.game._speak(praise + `. Now look at the yellow star in the ${nextDesc}.`);
+                }
                 this._phase      = 'countdown';
                 this._phaseStart = timestamp;
                 this._buffer     = [];
@@ -212,50 +296,112 @@ export class CalibrationSystem {
         const py      = cur.y * H;
         const elapsed = timestamp - this._phaseStart;
 
+        const theme = window.game?.settings?.targetTheme || 'bubbles';
+
         if (this._phase === 'countdown') {
             const pulse  = 0.5 + 0.5 * Math.sin(elapsed * 0.01);
-            const outerR = 22 + pulse * 8;
+            const outerR = 24 + pulse * 8;
 
-            ctx.strokeStyle = `rgba(255, 204, 0, ${0.5 + 0.5 * pulse})`;
-            ctx.lineWidth   = 3;
-            ctx.beginPath();
-            ctx.arc(px, py, outerR, 0, Math.PI * 2);
-            ctx.stroke();
+            if (theme === 'emojis') {
+                ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
+                ctx.lineWidth   = 3;
+                ctx.beginPath();
+                ctx.arc(px, py, outerR, 0, Math.PI * 2);
+                ctx.stroke();
 
-            ctx.beginPath();
-            ctx.arc(px, py, 14, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffcc00';
-            ctx.fill();
+                ctx.font = '28px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("🐝", px, py);
+            } else if (theme === 'stars') {
+                ctx.strokeStyle = 'rgba(255, 204, 0, 0.5)';
+                ctx.lineWidth   = 3;
+                ctx.beginPath();
+                ctx.arc(px, py, outerR, 0, Math.PI * 2);
+                ctx.stroke();
 
-            ctx.beginPath();
-            ctx.arc(px, py, 5, 0, Math.PI * 2);
-            ctx.fillStyle = '#fff';
-            ctx.fill();
+                ctx.font = '28px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("⭐", px, py);
+            } else {
+                ctx.strokeStyle = `rgba(255, 204, 0, ${0.5 + 0.5 * pulse})`;
+                ctx.lineWidth   = 3;
+                ctx.beginPath();
+                ctx.arc(px, py, outerR, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(px, py, 14, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffcc00';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(px, py, 5, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+            }
         } else {
             // Progress arc
             const progress = Math.min(elapsed / COLLECT_MS, 1);
 
-            ctx.strokeStyle = 'rgba(0,229,255,0.2)';
-            ctx.lineWidth   = 7;
-            ctx.beginPath();
-            ctx.arc(px, py, 26, 0, Math.PI * 2);
-            ctx.stroke();
+            if (theme === 'emojis') {
+                ctx.strokeStyle = 'rgba(0,255,136,0.15)';
+                ctx.lineWidth   = 5;
+                ctx.beginPath();
+                ctx.arc(px, py, 28, 0, Math.PI * 2);
+                ctx.stroke();
 
-            ctx.strokeStyle = '#00ff88';
-            ctx.lineWidth   = 7;
-            ctx.beginPath();
-            ctx.arc(px, py, 26, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
-            ctx.stroke();
+                ctx.strokeStyle = '#00ff88';
+                ctx.lineWidth   = 5;
+                ctx.beginPath();
+                ctx.arc(px, py, 28, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+                ctx.stroke();
 
-            ctx.beginPath();
-            ctx.arc(px, py, 12, 0, Math.PI * 2);
-            ctx.fillStyle = '#00ff88';
-            ctx.fill();
+                ctx.font = '24px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("🦄", px, py);
+            } else if (theme === 'stars') {
+                ctx.strokeStyle = 'rgba(255,204,0,0.15)';
+                ctx.lineWidth   = 5;
+                ctx.beginPath();
+                ctx.arc(px, py, 28, 0, Math.PI * 2);
+                ctx.stroke();
 
-            ctx.beginPath();
-            ctx.arc(px, py, 4, 0, Math.PI * 2);
-            ctx.fillStyle = '#fff';
-            ctx.fill();
+                ctx.strokeStyle = '#ffcc00';
+                ctx.lineWidth   = 5;
+                ctx.beginPath();
+                ctx.arc(px, py, 28, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+                ctx.stroke();
+
+                ctx.font = '24px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("🌟", px, py);
+            } else {
+                ctx.strokeStyle = 'rgba(0,229,255,0.2)';
+                ctx.lineWidth   = 7;
+                ctx.beginPath();
+                ctx.arc(px, py, 26, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.strokeStyle = '#00ff88';
+                ctx.lineWidth   = 7;
+                ctx.beginPath();
+                ctx.arc(px, py, 26, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(px, py, 12, 0, Math.PI * 2);
+                ctx.fillStyle = '#00ff88';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(px, py, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+            }
         }
 
         // Face-detection status
@@ -332,7 +478,7 @@ export class CalibrationSystem {
             return;
         }
 
-        if (this._data.length >= 4) {
+        if (this._data.length >= 3) {
             try {
                 this._computeAffineTransform(this._data, isWebGazer);
                 this._saveToStorage();
@@ -394,18 +540,27 @@ export class CalibrationSystem {
 
     _saveToStorage() {
         try {
-            localStorage.setItem('eyeAimArena_cal_v3', JSON.stringify({
-                transformX: this.transformX,
-                transformY: this.transformY,
-                webgazerTransformX: this.webgazerTransformX,
-                webgazerTransformY: this.webgazerTransformY,
-            }));
-        } catch { /* storage unavailable */ }
+            const existingRaw = localStorage.getItem('eyeAimArena_cal_v3');
+            const existing = existingRaw ? JSON.parse(existingRaw) : {};
+
+            const dataToSave = {
+                transformX: this.transformX !== null ? this.transformX : (existing.transformX || null),
+                transformY: this.transformY !== null ? this.transformY : (existing.transformY || null),
+                webgazerTransformX: this.webgazerTransformX !== null ? this.webgazerTransformX : (existing.webgazerTransformX || null),
+                webgazerTransformY: this.webgazerTransformY !== null ? this.webgazerTransformY : (existing.webgazerTransformY || null),
+            };
+
+            console.log("[CalibrationSystem] Saving calibration parameters to localStorage:", dataToSave);
+            localStorage.setItem('eyeAimArena_cal_v3', JSON.stringify(dataToSave));
+        } catch (err) {
+            console.warn("[CalibrationSystem] Failed to save calibration to storage:", err);
+        }
     }
 
     _loadFromStorage() {
         try {
             const raw = localStorage.getItem('eyeAimArena_cal_v3');
+            console.log("[CalibrationSystem] Loading calibration data (eyeAimArena_cal_v3):", raw);
             if (raw) {
                 const { transformX, transformY, webgazerTransformX, webgazerTransformY } = JSON.parse(raw);
                 if (transformX && transformY) {
@@ -416,23 +571,33 @@ export class CalibrationSystem {
                     this.webgazerTransformX = webgazerTransformX;
                     this.webgazerTransformY = webgazerTransformY;
                 }
+                console.log("[CalibrationSystem] Calibration loaded successfully. MediaPipe:", 
+                    this.transformX ? "Calibrated ✓" : "None", "WebGazer:", 
+                    this.webgazerTransformX ? "Calibrated ✓" : "None");
                 return true;
             }
-        } catch { /* corrupted data */ }
+        } catch (err) {
+            console.warn("[CalibrationSystem] Failed to load calibration v3:", err);
+        }
 
         // Legacy fallback
         try {
             const rawLegacy = localStorage.getItem('eyeAimArena_cal_v2');
+            console.log("[CalibrationSystem] Falling back to legacy eyeAimArena_cal_v2:", rawLegacy);
             if (rawLegacy) {
                 const { transformX, transformY } = JSON.parse(rawLegacy);
                 if (transformX && transformY) {
                     this.transformX = transformX;
                     this.transformY = transformY;
+                    console.log("[CalibrationSystem] Legacy calibration loaded successfully:", this.transformX, this.transformY);
                     return true;
                 }
             }
-        } catch { /* corrupted data */ }
+        } catch (err) {
+            console.warn("[CalibrationSystem] Failed to load legacy calibration v2:", err);
+        }
 
+        console.log("[CalibrationSystem] No calibration found in localStorage.");
         return false;
     }
 }

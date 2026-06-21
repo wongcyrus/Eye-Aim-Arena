@@ -30,6 +30,7 @@ const MODE = Object.freeze({
     TIME_ATTACK: 'time_attack',
     SURVIVAL:    'survival',
     PRECISION:   'precision',
+    ZEN:         'zen',
 });
 
 // Target visual size ranges (canvas pixels, scaled below)
@@ -102,12 +103,26 @@ class GameAudio {
         osc.stop(now + duration + 0.01);
     }
 
-    playHit(score)  { this._tone(score > 150 ? 1200 : 800, 0.12, 'sine', 0.28, 400); }
-    playMiss()      { this._tone(200, 0.18, 'sawtooth', 0.18, 80); }
+    playHit(score)  { 
+        if (window.game && window.game.mode === 'zen') {
+            // Gentle ascending musical chime bubble pop for positive, comforting reinforcement
+            this._tone(523.25, 0.15, 'sine', 0.25, 1046.50); // Soothing C5-C6 ascending bell
+        } else {
+            this._tone(score > 150 ? 1200 : 800, 0.12, 'sine', 0.28, 400); 
+        }
+    }
+    playMiss()      { 
+        if (window.game && window.game.mode === 'zen') return; // Silence missed expiries completely in Zen Mode
+        this._tone(200, 0.18, 'sawtooth', 0.18, 80); 
+    }
     playBlink()     { this._tone(600, 0.06, 'square', 0.15); }
     playLevelUp()   { this._tone(440, 0.08, 'sine', 0.2, 880); }
     playGameOver()  { this._tone(300, 0.4, 'sawtooth', 0.3, 100); }
     playCountdown() { this._tone(520, 0.1, 'sine', 0.18); }
+    playDwellTick(progress) {
+        const freq = 440 + progress * 400; // Ascending soft bubble sound
+        this._tone(freq, 0.03, 'sine', 0.05);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -171,6 +186,9 @@ class Target {
         this.hit     = false;
         this.hitTime = 0;
         this.expired = false;
+
+        const emojis = ["🐶", "🐱", "🐻", "🐸", "🐼", "🐨", "🐰", "🦁", "🐵", "🦊", "🐯", "🐧"];
+        this.emoji = emojis[Math.floor(Math.random() * emojis.length)];
     }
 
     /** @param {number} dt — milliseconds since last frame */
@@ -179,19 +197,25 @@ class Target {
         const age = performance.now() - this.createdAt;
         if (age >= this.lifetime) { this.expired = true; return; }
 
+        const margin = this.safeAreaMargin || 0.09;
+        const minX = margin;
+        const maxX = 1 - margin;
+        const minY = margin;
+        const maxY = 1 - margin;
+
         if (this.type === 'linear') {
             this.x += this.vx * dt;
             this.y += this.vy * dt;
-            if (this.x < 0.04 || this.x > 0.96) { this.vx *= -1; this.x = Math.max(0.04, Math.min(0.96, this.x)); }
-            if (this.y < 0.06 || this.y > 0.96) { this.vy *= -1; this.y = Math.max(0.06, Math.min(0.96, this.y)); }
+            if (this.x < minX || this.x > maxX) { this.vx *= -1; this.x = Math.max(minX, Math.min(maxX, this.x)); }
+            if (this.y < minY || this.y > maxY) { this.vy *= -1; this.y = Math.max(minY, Math.min(maxY, this.y)); }
         } else if (this.type === 'drift') {
             this.vx += (Math.random() - 0.5) * 0.00008 * dt;
             this.vy += (Math.random() - 0.5) * 0.00008 * dt;
             const maxV = SPEED.SLOW;
             this.vx = Math.max(-maxV, Math.min(maxV, this.vx));
             this.vy = Math.max(-maxV, Math.min(maxV, this.vy));
-            this.x  = Math.max(0.04, Math.min(0.96, this.x + this.vx * dt));
-            this.y  = Math.max(0.06, Math.min(0.96, this.y + this.vy * dt));
+            this.x  = Math.max(minX, Math.min(maxX, this.x + this.vx * dt));
+            this.y  = Math.max(minY, Math.min(maxY, this.y + this.vy * dt));
         }
     }
 
@@ -239,23 +263,51 @@ class Target {
         ctx.arc(px, py, r * 1.6, 0, Math.PI * 2);
         ctx.fill();
 
-        // Main body
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(px, py, r, 0, Math.PI * 2);
-        ctx.fill();
+        const theme = window.game?.settings?.targetTheme || 'bubbles';
 
-        // Inner rings
-        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-        ctx.lineWidth   = 2;
-        ctx.beginPath();
-        ctx.arc(px, py, r * 0.62, 0, Math.PI * 2);
-        ctx.stroke();
+        if (theme === 'emojis') {
+            // Draw a cute circular background first so it stands out nicely against the dark canvas
+            ctx.fillStyle = 'rgba(255,255,255,0.15)';
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.fill();
 
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.beginPath();
-        ctx.arc(px, py, r * 0.3, 0, Math.PI * 2);
-        ctx.fill();
+            // Draw the emoji face centered
+            ctx.font = `${r * 1.5}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.emoji || "🐶", px, py);
+        } else if (theme === 'stars') {
+            // Draw the golden star centered
+            ctx.font = `${r * 1.6}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("⭐", px, py);
+        } else {
+            // Main body (using soothing pastel colors in Zen mode to reduce sensory fatigue)
+            let mainColor = this.color;
+            if (window.game && window.game.mode === 'zen') {
+                if (this.color === PALETTE.LARGE) mainColor = '#ffb347';      // Soft pastel orange
+                else if (this.color === PALETTE.MEDIUM) mainColor = '#ff6b6b'; // Soothing soft coral
+                else if (this.color === PALETTE.SMALL) mainColor = '#b19ffb';  // Friendly pastel lavender
+            }
+            ctx.fillStyle = mainColor;
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner rings
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+            ctx.lineWidth   = 2;
+            ctx.beginPath();
+            ctx.arc(px, py, r * 0.62, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.beginPath();
+            ctx.arc(px, py, r * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         // Danger flash near expiry
         if (lifeRat > DANGER_FLASH_START) {
@@ -311,7 +363,7 @@ class Target {
 
 function randomEdge() { return Math.random() * 0.82 + 0.09; }
 
-function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK) {
+function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK, settings = null) {
     const rand = Math.random();
 
     let radius, color, baseScore, type, lifetime;
@@ -329,6 +381,13 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK) {
         radius    = Math.round(radius * 0.65);
         baseScore = Math.round(baseScore * 1.4);
     }
+
+    // Apply target scale from settings
+    let targetScale = 1.0;
+    if (settings && settings.targetScale !== undefined) {
+        targetScale = parseFloat(settings.targetScale);
+    }
+    radius = Math.round(radius * targetScale);
 
     lifetime = Math.max(
         TARGET_LIFETIME_MIN_MS,
@@ -348,9 +407,24 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK) {
     const angle = Math.random() * Math.PI * 2;
     const speed = SPEED.SLOW + Math.random() * (SPEED.NORMAL * difficulty - SPEED.SLOW);
 
-    return new Target({
-        x:  randomEdge(),
-        y:  0.08 + Math.random() * 0.84,
+    // Get margin boundary from settings
+    let margin = 0.09;
+    if (settings && settings.safeAreaMargin !== undefined) {
+        margin = parseFloat(settings.safeAreaMargin);
+    }
+
+    // Calculate spawning boundaries [margin, 1 - margin]
+    const minX = margin;
+    const maxX = 1 - margin;
+    const minY = margin;
+    const maxY = 1 - margin;
+
+    const x = minX + Math.random() * (maxX - minX);
+    const y = minY + Math.random() * (maxY - minY);
+
+    const target = new Target({
+        x,
+        y,
         radius,
         color,
         baseScore,
@@ -359,6 +433,10 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK) {
         vy: Math.sin(angle) * speed,
         lifetime,
     });
+
+    target.safeAreaMargin = margin;
+
+    return target;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -381,7 +459,12 @@ function saveScore(entry) {
 }
 
 function modeLabel(m) {
-    return { [MODE.TIME_ATTACK]: 'Time Attack', [MODE.SURVIVAL]: 'Survival', [MODE.PRECISION]: 'Precision' }[m] ?? m;
+    return { 
+        [MODE.TIME_ATTACK]: 'Time Attack', 
+        [MODE.SURVIVAL]: 'Survival', 
+        [MODE.PRECISION]: 'Precision',
+        [MODE.ZEN]: 'Zen Practice'
+    }[m] ?? m;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -413,6 +496,7 @@ class Game {
         this.calibration = new CalibrationSystem(this.canvas, this.tracker);
         this.audio    = new GameAudio();
         this.settings = this._loadSettings();
+        this._updateGazeAlpha();
         this.availableCameras = [];
         this.currentCameraDeviceId = this.settings.cameraDeviceId || '';
 
@@ -457,6 +541,16 @@ class Game {
         // Bind event handlers
         this._onKeyDown = this._onKeyDown.bind(this);
         this._onResize  = this._onResize.bind(this);
+
+        // Warm up speech synthesis voices
+        if (window.speechSynthesis) {
+            window.speechSynthesis.getVoices();
+            if ('onvoiceschanged' in window.speechSynthesis) {
+                window.speechSynthesis.onvoiceschanged = () => {
+                    window.speechSynthesis.getVoices();
+                };
+            }
+        }
     }
 
     get activeVideo() {
@@ -569,8 +663,13 @@ class Game {
                 const mappedX = this.settings.invertX ? 1 - cal.x : cal.x;
                 const mappedY = this.settings.invertY ? 1 - cal.y : cal.y;
 
-                this._smoothGazeX += (mappedX - this._smoothGazeX) * this._gazeAlpha;
-                this._smoothGazeY += (mappedY - this._smoothGazeY) * this._gazeAlpha;
+                // Range Amplification around center point (0.5)
+                const sens = parseFloat(this.settings.gazeSensitivity || '1.0');
+                const amplifiedX = 0.5 + (mappedX - 0.5) * sens;
+                const amplifiedY = 0.5 + (mappedY - 0.5) * sens;
+
+                this._smoothGazeX += (amplifiedX - this._smoothGazeX) * this._gazeAlpha;
+                this._smoothGazeY += (amplifiedY - this._smoothGazeY) * this._gazeAlpha;
                 this.gazeX = Math.max(0, Math.min(1, this._smoothGazeX));
                 this.gazeY = Math.max(0, Math.min(1, this._smoothGazeY));
             }
@@ -580,9 +679,15 @@ class Game {
                 const cal = this.calibration.applyTransform(tracking.gazeX, tracking.gazeY);
                 const mappedX = this.settings.invertX ? 1 - cal.x : cal.x;
                 const mappedY = this.settings.invertY ? 1 - cal.y : cal.y;
+
+                // Range Amplification around center point (0.5)
+                const sens = parseFloat(this.settings.gazeSensitivity || '1.0');
+                const amplifiedX = 0.5 + (mappedX - 0.5) * sens;
+                const amplifiedY = 0.5 + (mappedY - 0.5) * sens;
+
                 // Secondary smoothing
-                this._smoothGazeX += (mappedX - this._smoothGazeX) * this._gazeAlpha;
-                this._smoothGazeY += (mappedY - this._smoothGazeY) * this._gazeAlpha;
+                this._smoothGazeX += (amplifiedX - this._smoothGazeX) * this._gazeAlpha;
+                this._smoothGazeY += (amplifiedY - this._smoothGazeY) * this._gazeAlpha;
                 this.gazeX = Math.max(0, Math.min(1, this._smoothGazeX));
                 this.gazeY = Math.max(0, Math.min(1, this._smoothGazeY));
             }
@@ -637,6 +742,8 @@ class Game {
             this.spawnInterval = Math.max(1000, 2500 - level * 200);
         } else if (this.mode === MODE.PRECISION) {
             this.difficulty = 1 + this.precisionRounds / 8;
+        } else if (this.mode === MODE.ZEN) {
+            this.difficulty = 1.0; // Keep targets completely steady and friendly
         }
 
         // ---- Time Attack end ----
@@ -648,12 +755,13 @@ class Game {
         // ---- Spawn targets ----
         const maxActive = this.mode === MODE.SURVIVAL
             ? Math.min(SURVIVAL_HARD_MAX_TARGETS, SURVIVAL_BASE_MAX_TARGETS + Math.floor(this.difficulty))
-            : this.mode === MODE.PRECISION ? 1 : 5;
+            : this.mode === MODE.PRECISION ? 1 
+            : this.mode === MODE.ZEN ? 3 : 5; // Moderate target counts for Zen to avoid overload
 
         if (this.targets.length < maxActive &&
             timestamp - this.lastSpawnTime >= this.spawnInterval) {
             if (this.mode !== MODE.PRECISION || this.precisionRounds < this.precisionTotal) {
-                this.targets.push(createTarget(this.difficulty, this.mode));
+                this.targets.push(createTarget(this.difficulty, this.mode, this.settings));
                 this.lastSpawnTime = timestamp;
             }
         }
@@ -663,13 +771,17 @@ class Game {
         const assistBuffer = this._getAimAssistBuffer();
         const W = this.canvas.width;
         const H = this.canvas.height;
-        const isAutoShoot = this.settings.triggerMode === 'auto';
+        const triggerMode = this.settings.triggerMode || 'blink';
+        const isAutoShoot = triggerMode === 'auto';
+        const isDwellMode = triggerMode.startsWith('dwell_');
         let autoShootRegistered = false;
+        let hoveredTarget = null;
 
         for (const t of this.targets) {
             t.update(dt);
             if (!t.hit && !t.expired && t.containsGaze(this.gazeX, this.gazeY, W, H, assistBuffer)) {
                 this._onTarget = true;
+                hoveredTarget = t;
                 if (isAutoShoot && !autoShootRegistered) {
                     autoShootRegistered = true;
                     this.shots++;
@@ -678,6 +790,7 @@ class Game {
                     this.score += pts;
                     this.hits++;
                     if (this.mode === MODE.PRECISION) this.precisionRounds++;
+                    this._checkZenMilestones();
 
                     // Spawn particles
                     const px = t.x * W;
@@ -690,6 +803,69 @@ class Game {
                     this._updateHUD();
                 }
             }
+        }
+
+        // ---- Gaze Dwell Logic ----
+        if (isDwellMode) {
+            let dwellLimit = 1000;
+            if (triggerMode === 'dwell_short') dwellLimit = 500;
+            if (triggerMode === 'dwell_medium') dwellLimit = 1000;
+            if (triggerMode === 'dwell_long') dwellLimit = 1500;
+
+            if (hoveredTarget) {
+                if (this._dwellTarget !== hoveredTarget) {
+                    this._dwellTarget = hoveredTarget;
+                    this._dwellStartTime = timestamp;
+                    this._dwellProgress = 0;
+                    this._lastDwellTickTime = timestamp;
+                } else {
+                    const elapsedDwell = timestamp - this._dwellStartTime;
+                    this._dwellProgress = Math.min(1.0, elapsedDwell / dwellLimit);
+
+                    // Play a tick sound every 150ms
+                    if (!this._lastDwellTickTime) this._lastDwellTickTime = 0;
+                    if (timestamp - this._lastDwellTickTime >= 150) {
+                        this._lastDwellTickTime = timestamp;
+                        if (this._dwellProgress < 1.0) {
+                            this.audio.playDwellTick(this._dwellProgress);
+                        }
+                    }
+
+                    if (elapsedDwell >= dwellLimit) {
+                        // Pop target!
+                        this.shots++;
+                        this._lastShotTime = performance.now();
+                        const pts = hoveredTarget.registerHit(this.gazeX, this.gazeY, W, H, assistBuffer);
+                        this.score += pts;
+                        this.hits++;
+                        if (this.mode === MODE.PRECISION) this.precisionRounds++;
+                        this._checkZenMilestones();
+
+                        // Spawn particles
+                        const px = hoveredTarget.x * W;
+                        const py = hoveredTarget.y * H;
+                        for (let i = 0; i < 14; i++) {
+                            this.particles.push(new Particle(px, py, hoveredTarget.color));
+                        }
+
+                        this.audio.playHit(pts);
+                        this._updateHUD();
+
+                        // Reset
+                        this._dwellTarget = null;
+                        this._dwellStartTime = 0;
+                        this._dwellProgress = 0;
+                    }
+                }
+            } else {
+                this._dwellTarget = null;
+                this._dwellStartTime = 0;
+                this._dwellProgress = 0;
+            }
+        } else {
+            this._dwellTarget = null;
+            this._dwellStartTime = 0;
+            this._dwellProgress = 0;
         }
 
         // ---- Remove dead targets, count unhit expiries ----
@@ -751,6 +927,7 @@ class Game {
                 const pts = t.registerHit(this.gazeX, this.gazeY, W, H, assistBuffer);
                 this.score += pts;
                 this.hits++;
+                this._checkZenMilestones();
                 hit = true;
 
                 if (this.mode === MODE.PRECISION) this.precisionRounds++;
@@ -1087,6 +1264,21 @@ class Game {
         ctx.arc(px, py, dotR, 0, Math.PI * 2);
         ctx.fill();
 
+        // Dwell charging indicator
+        const trigMode = this.settings.triggerMode || 'blink';
+        if (trigMode.startsWith('dwell_') && this._dwellProgress > 0) {
+            ctx.strokeStyle = '#ffcc00'; // Bright gold
+            ctx.lineWidth   = 4;
+            ctx.beginPath();
+            ctx.arc(px, py, 34, -Math.PI / 2, -Math.PI / 2 + this._dwellProgress * Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = `rgba(255, 204, 0, ${this._dwellProgress * 0.18})`;
+            ctx.beginPath();
+            ctx.arc(px, py, 34, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         // Blink indicator
         const isBlinking = this.settings.trackingMode === 'webgazer' ? false : this.tracker.isBlinking;
         if (isBlinking) {
@@ -1136,11 +1328,62 @@ class Game {
         this._setCameraPreviewVisible(false);
         this._renderLeaderboard();
         this._showScreen('menuScreen');
+        this._updateCalibrationStatusUI();
 
         try {
             await this._updateTrackingMode();
         } catch (err) {
             console.error('Failed to update tracking mode on menu transition:', err);
+        }
+    }
+
+    _updateCalibrationStatusUI() {
+        const calibrateBtn = document.getElementById('calibrateBtn');
+        if (!calibrateBtn) return;
+
+        const isCal = this.calibration.isCalibrated();
+        const mode = this.settings.trackingMode === 'webgazer' ? 'WebGazer' : 'MediaPipe';
+        
+        let existingStatusBadge = document.getElementById('calStatusBadge');
+        if (!existingStatusBadge) {
+            existingStatusBadge = document.createElement('span');
+            existingStatusBadge.id = 'calStatusBadge';
+            existingStatusBadge.style.display = 'inline-block';
+            existingStatusBadge.style.marginLeft = '10px';
+            existingStatusBadge.style.padding = '2px 8px';
+            existingStatusBadge.style.borderRadius = '12px';
+            existingStatusBadge.style.fontSize = '0.75rem';
+            existingStatusBadge.style.fontWeight = 'bold';
+            calibrateBtn.appendChild(existingStatusBadge);
+        }
+
+        const lang = this.settings.voiceLanguage || 'zh-HK';
+        if (isCal) {
+            existingStatusBadge.className = 'status-badge calibrated';
+            existingStatusBadge.style.background = 'rgba(0, 255, 136, 0.15)';
+            existingStatusBadge.style.color = '#00ff88';
+            existingStatusBadge.style.border = '1px solid #00ff88';
+            
+            if (lang === 'zh-HK') {
+                existingStatusBadge.innerHTML = `已校準 (${mode}) ✓`;
+            } else if (lang === 'zh-CN') {
+                existingStatusBadge.innerHTML = `已校准 (${mode}) ✓`;
+            } else {
+                existingStatusBadge.innerHTML = `Calibrated (${mode}) ✓`;
+            }
+        } else {
+            existingStatusBadge.className = 'status-badge uncalibrated';
+            existingStatusBadge.style.background = 'rgba(255, 64, 129, 0.15)';
+            existingStatusBadge.style.color = '#ff4081';
+            existingStatusBadge.style.border = '1px solid #ff4081';
+            
+            if (lang === 'zh-HK') {
+                existingStatusBadge.innerHTML = `未校準 ✗`;
+            } else if (lang === 'zh-CN') {
+                existingStatusBadge.innerHTML = `未校准 ✗`;
+            } else {
+                existingStatusBadge.innerHTML = `Not Calibrated ✗`;
+            }
         }
     }
 
@@ -1156,12 +1399,23 @@ class Game {
         this.particles   = [];
         this.difficulty  = 1;
         this.lastSpawnTime = 0;
-        this.spawnInterval = mode === MODE.SURVIVAL ? 2800 : 2500;
+        if (mode === MODE.ZEN) {
+            this.spawnInterval = 3500; // Relaxed pacing for Zen Practice Mode
+        } else {
+            this.spawnInterval = mode === MODE.SURVIVAL ? 2800 : 2500;
+        }
         this.startTime   = performance.now();
 
         this._hideAllScreens();
         this._showHUD(mode);
         this._updateHUD();
+
+        // Speak starting guidance
+        if (mode === MODE.ZEN) {
+            this._speak("Let's practice! Follow the targets with your eyes, and hold your gaze steady to pop them.");
+        } else {
+            this._speak(`Starting ${modeLabel(mode)}! Get ready, three, two, one, go!`);
+        }
 
         await this._updateTrackingMode();
     }
@@ -1222,10 +1476,16 @@ class Game {
     }
 
     _updateHUD() {
-        document.getElementById('scoreDisplay').textContent = `Score: ${this.score}`;
-        const accuracy = this.shots > 0
-            ? Math.round((this.hits / this.shots) * 100) : 100;
-        document.getElementById('accuracyDisplay').textContent = `Acc: ${accuracy}%`;
+        if (this.mode === MODE.ZEN) {
+            document.getElementById('scoreDisplay').textContent = `Hits: ${this.hits}`;
+            document.getElementById('accuracyDisplay').style.display = 'none';
+        } else {
+            document.getElementById('scoreDisplay').textContent = `Score: ${this.score}`;
+            document.getElementById('accuracyDisplay').style.display = 'inline';
+            const accuracy = this.shots > 0
+                ? Math.round((this.hits / this.shots) * 100) : 100;
+            document.getElementById('accuracyDisplay').textContent = `Acc: ${accuracy}%`;
+        }
         document.getElementById('eyeStatus').textContent = this._getEyeStatusText();
 
         if (this.mode === MODE.TIME_ATTACK) {
@@ -1237,6 +1497,11 @@ class Game {
         } else if (this.mode === MODE.PRECISION) {
             document.getElementById('timerDisplay').textContent =
                 `Round: ${this.precisionRounds}/${this.precisionTotal}`;
+        } else if (this.mode === MODE.ZEN) {
+            const elapsed = Math.floor((performance.now() - this.startTime) / 1000);
+            const m = Math.floor(elapsed / 60);
+            const s = elapsed % 60;
+            document.getElementById('timerDisplay').textContent = `Practice: ${m}:${s.toString().padStart(2, '0')}`;
         }
     }
 
@@ -1481,6 +1746,14 @@ class Game {
             trackingMode: 'mediapipe',
             aimAssist: 'normal',
             triggerMode: 'auto',
+            gazeSmoothing: 'normal',
+            safeAreaMargin: '0.09',
+            targetScale: '1.0',
+            gazeSensitivity: '1.0',
+            targetTheme: 'bubbles',
+            voiceGuidance: true,
+            voiceLanguage: 'zh-HK',
+            calibrationPoints: '9',
         };
     }
 
@@ -1496,10 +1769,363 @@ class Game {
                 cameraDeviceId: typeof parsed.cameraDeviceId === 'string' ? parsed.cameraDeviceId : '',
                 trackingMode: parsed.trackingMode === 'webgazer' ? 'webgazer' : 'mediapipe',
                 aimAssist: (parsed.aimAssist === 'high' || parsed.aimAssist === 'off') ? parsed.aimAssist : 'normal',
-                triggerMode: (parsed.triggerMode === 'blink' || parsed.triggerMode === 'auto') ? parsed.triggerMode : defaults.triggerMode,
+                triggerMode: ['blink', 'auto', 'dwell_short', 'dwell_medium', 'dwell_long'].includes(parsed.triggerMode) ? parsed.triggerMode : defaults.triggerMode,
+                gazeSmoothing: ['normal', 'high', 'heavy'].includes(parsed.gazeSmoothing) ? parsed.gazeSmoothing : defaults.gazeSmoothing,
+                safeAreaMargin: typeof parsed.safeAreaMargin === 'string' ? parsed.safeAreaMargin : defaults.safeAreaMargin,
+                targetScale: typeof parsed.targetScale === 'string' ? parsed.targetScale : defaults.targetScale,
+                gazeSensitivity: typeof parsed.gazeSensitivity === 'string' ? parsed.gazeSensitivity : defaults.gazeSensitivity,
+                targetTheme: ['bubbles', 'emojis', 'stars'].includes(parsed.targetTheme) ? parsed.targetTheme : defaults.targetTheme,
+                voiceGuidance: parsed.voiceGuidance !== undefined ? Boolean(parsed.voiceGuidance) : defaults.voiceGuidance,
+                voiceLanguage: ['en', 'zh-HK', 'zh-CN'].includes(parsed.voiceLanguage) ? parsed.voiceLanguage : defaults.voiceLanguage,
+                calibrationPoints: ['9', '5', '3'].includes(parsed.calibrationPoints) ? parsed.calibrationPoints : defaults.calibrationPoints,
             };
         } catch {
             return defaults;
+        }
+    }
+
+    _updateGazeAlpha() {
+        const smoothing = this.settings.gazeSmoothing || 'normal';
+        if (smoothing === 'heavy') {
+            this._gazeAlpha = 0.05;
+        } else if (smoothing === 'high') {
+            this._gazeAlpha = 0.10;
+        } else {
+            this._gazeAlpha = 0.20;
+        }
+
+        if (this.tracker) {
+            this.tracker.setSmoothingAlpha(this._gazeAlpha);
+        }
+    }
+
+    _selectFemaleVoice(lang) {
+        if (!window.speechSynthesis) return null;
+        const voices = window.speechSynthesis.getVoices();
+        if (!voices || voices.length === 0) return null;
+
+        const langLower = lang.toLowerCase();
+        let candidateVoices = [];
+
+        // Step 1: Filter voices compatible with the requested language code
+        if (langLower === 'zh-hk') {
+            candidateVoices = voices.filter(v => {
+                const vl = v.lang.toLowerCase();
+                const name = v.name.toLowerCase();
+                return vl.startsWith('zh-hk') || 
+                       vl.replace('_', '-').startsWith('zh-hk') ||
+                       vl.includes('-hk') ||
+                       name.includes('cantonese') ||
+                       name.includes('hong kong') ||
+                       name.includes('粵語') ||
+                       name.includes('粤语');
+            });
+            if (candidateVoices.length === 0) {
+                candidateVoices = voices.filter(v => v.lang.toLowerCase().startsWith('zh'));
+            }
+        } else if (langLower === 'zh-cn') {
+            candidateVoices = voices.filter(v => {
+                const vl = v.lang.toLowerCase();
+                const name = v.name.toLowerCase();
+                return (vl.startsWith('zh-cn') || vl.replace('_', '-').startsWith('zh-cn') || vl.includes('-cn') || name.includes('mandarin') || name.includes('putonghua') || name.includes('普通话')) &&
+                       !vl.includes('-hk') && !name.includes('cantonese') && !name.includes('粵語');
+            });
+            if (candidateVoices.length === 0) {
+                candidateVoices = voices.filter(v => v.lang.toLowerCase().startsWith('zh'));
+            }
+        } else {
+            candidateVoices = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
+        }
+
+        if (candidateVoices.length === 0) {
+            candidateVoices = voices;
+        }
+
+        // Step 2: Score each candidate voice (higher score is better)
+        const scored = candidateVoices.map(voice => {
+            const name = voice.name.toLowerCase();
+            let score = 0;
+
+            // Prioritize higher-quality remote neural voices (Microsoft Online Natural, Google Online, etc.)
+            if (name.includes('natural') || name.includes('online') || name.includes('neural')) {
+                score += 100;
+            }
+            if (name.includes('google')) {
+                score += 40;
+            }
+
+            // Language-specific premium voice matching (female-first)
+            if (langLower === 'zh-hk') {
+                // Microsoft Neural (Tracy / Hiuting)
+                if (name.includes('hiuting')) score += 150;
+                if (name.includes('tracy')) score += 140;
+                // Apple Premium (Sin-ji / Mei-Jia)
+                if (name.includes('sinji') || name.includes('sin-ji')) score += 130;
+                if (name.includes('mei-jia') || name.includes('meijia')) score += 110;
+                if (name.includes('szeman')) score += 100;
+                // Google Cantonese
+                if (name.includes('粵語') || name.includes('粤语') || name.includes('cantonese')) score += 80;
+                
+                // Penalize male Cantonese voices / Mandarin fallback leakages
+                if (name.includes('yunxi') || name.includes('yunyang') || name.includes('yunxiu') || name.includes('xiaoxuan')) {
+                    score -= 50;
+                }
+                if (name.includes('dann') || name.includes('samuel') || name.includes('male') || name.includes('boy')) {
+                    score -= 100;
+                }
+            } else if (langLower === 'zh-cn') {
+                // Microsoft Neural (Xiaoxiao, Xiaoyi, Yaoyao)
+                if (name.includes('xiaoxiao')) score += 150;
+                if (name.includes('xiaoyi')) score += 140;
+                if (name.includes('yaoyao')) score += 130;
+                if (name.includes('xiaoni')) score += 120;
+                // Apple Premium (Ting-ting)
+                if (name.includes('ting-ting') || name.includes('tingting')) score += 110;
+                // Google Mandarin
+                if (name.includes('普通话') || name.includes('mandarin') || name.includes('chinese')) score += 80;
+                
+                // Penalize male Mandarin voices
+                if (name.includes('yunxi') || name.includes('yunyang') || name.includes('yunjie') || name.includes('yunze') || name.includes('kangkang')) {
+                    score -= 50;
+                }
+                if (name.includes('male') || name.includes('boy') || name.includes('man') || name.includes('dongdong')) {
+                    score -= 100;
+                }
+            } else {
+                // English: Sonia, Aria, Jenny, Samantha, Zira, Susan, Nicky, Lulu
+                if (name.includes('sonia')) score += 150;
+                if (name.includes('aria')) score += 140;
+                if (name.includes('jenny')) score += 130;
+                if (name.includes('samantha')) score += 120;
+                if (name.includes('zira')) score += 100;
+                if (name.includes('susan') || name.includes('nicky') || name.includes('lulu')) score += 90;
+                
+                // Penalize male English voices
+                if (name.includes('david') || name.includes('guy') || name.includes('male') || name.includes('boy') || name.includes('man') || name.includes('mark') || name.includes('george')) {
+                    score -= 100;
+                }
+            }
+
+            // General gender metadata heuristic
+            if (voice.gender === 'female') {
+                score += 50;
+            } else if (voice.gender === 'male') {
+                score -= 100;
+            }
+
+            return { voice, score };
+        });
+
+        // Sort descending
+        scored.sort((a, b) => b.score - a.score);
+        
+        if (scored.length > 0) {
+            console.log(`[SpeechSynthesis] Voice selected for ${lang}: "${scored[0].voice.name}" (Score: ${scored[0].score}, Lang: ${scored[0].voice.lang})`);
+            return scored[0].voice;
+        }
+        return null;
+    }
+
+    _speak(text) {
+        if (!this.settings.voiceGuidance) return;
+        if (!window.speechSynthesis) return;
+
+        try {
+            // Cancel current speaking to avoid voice lag
+            window.speechSynthesis.cancel();
+
+            const lang = this.settings.voiceLanguage || 'zh-HK';
+            const translatedText = this._getTranslation(text, lang);
+
+            const utterance = new SpeechSynthesisUtterance(translatedText);
+            utterance.lang = lang;
+
+            const voice = this._selectFemaleVoice(lang);
+            if (voice) {
+                utterance.voice = voice;
+            }
+            
+            utterance.rate = 1.0;
+            if (lang.startsWith('zh')) {
+                utterance.rate = 0.95; // Slightly slower pacing for clearer Chinese pronunciation
+            }
+            utterance.pitch = 1.15; // Friendly higher pitch for kids
+            window.speechSynthesis.speak(utterance);
+        } catch (err) {
+            console.warn('Speech synthesis failed:', err);
+        }
+    }
+
+    _getTranslation(text, lang) {
+        if (!lang || lang === 'en') return text;
+
+        const cleanText = text.trim();
+
+        // 1. Exact dictionary matches
+        const exactDict = {
+            'zh-HK': {
+                "Calibration complete! Great job!": "校準完成啦！你做得好叻呀！",
+                "Let's practice! Follow the targets with your eyes, and hold your gaze steady to pop them.": "我哋一齊練習啦！用對眼跟住目標，定定地望住佢就可以射爆佢啦。",
+                "Awesome! 5 hits! You are doing great!": "好嘢！射中五個啦！做得好叻呀！",
+                "Incredible! 10 hits! Superb focus!": "太好啦！射中十個啦！好有專注力呀！",
+                "Amazing! 20 hits! You are an eye tracking champion!": "好神奇呀！射中二十個啦！你簡真係眼動追蹤大師呀！",
+                "Woohoo! 30 hits! Outstanding control!": "嘩！射中三十個啦！控制得好完美呀！",
+                "Forty hits! Absolutely brilliant!": "四十個啦！真係非常之聰明呀！",
+                "Fifty hits! That is stellar! You are a master!": "五十個啦！簡直係奇蹟呀！你太厲害啦！"
+            },
+            'zh-CN': {
+                "Calibration complete! Great job!": "校准完成啦！你做得太棒了！",
+                "Let's practice! Follow the targets with your eyes, and hold your gaze steady to pop them.": "我们一起来练习吧！用眼睛跟着目标，盯着它就能把它击碎哦。",
+                "Awesome! 5 hits! You are doing great!": "好棒！射中五个啦！做得真好！",
+                "Incredible! 10 hits! Superb focus!": "不可思议！射中十个啦！专注力真棒！",
+                "Amazing! 20 hits! You are an eye tracking champion!": "太神奇了！射中二十个啦！你简直是眼动追踪大师！",
+                "Woohoo! 30 hits! Outstanding control!": "哇！射中三十个啦！控制得太完美了！",
+                "Forty hits! Absolutely brilliant!": "四十个啦！真是太聪明太棒了！",
+                "Fifty hits! That is stellar! You are a master!": "五十个啦！简直是奇迹！你太厉害了！"
+            }
+        };
+
+        if (exactDict[lang] && exactDict[lang][cleanText]) {
+            return exactDict[lang][cleanText];
+        }
+
+        // 2. Calibration start phrase
+        const calibStartRegex = /Let's calibrate with (Quick 3 point|Medium 5 point|Standard 9 point) mode\. Look at the yellow star in the center\./i;
+        const calibStartMatch = cleanText.match(calibStartRegex);
+        if (calibStartMatch) {
+            const modeName = calibStartMatch[1];
+            if (lang === 'zh-HK') {
+                const hkMode = modeName.includes('3') ? "快速三點" : (modeName.includes('5') ? "平衡五點" : "標準九點");
+                return `我哋開始用${hkMode}模式校準。望住中間嘅黃色星星。`;
+            }
+            if (lang === 'zh-CN') {
+                const cnMode = modeName.includes('3') ? "快速三点" : (modeName.includes('5') ? "平衡五点" : "标准九点");
+                return `我们开始用${cnMode}模式校准。看着中间的黄色星星。`;
+            }
+        }
+
+        // 3. Calibration point transit
+        const transitRegex = /(.+?)\.\s*Now look at the yellow star in the\s*(.+?)\./i;
+        const transitMatch = cleanText.match(transitRegex);
+        if (transitMatch) {
+            const praise = transitMatch[1].trim();
+            const nextDesc = transitMatch[2].trim().replace(/\.$/, '');
+
+            const praiseDict = {
+                'zh-HK': {
+                    "Good": "好呀", "Nice": "好叻", "Keep holding": "繼續望住", "Perfect": "好完美",
+                    "Great": "真係好棒", "Excellent": "非常之好", "Well done": "做得好", "Almost there": "就快好啦"
+                },
+                'zh-CN': {
+                    "Good": "真棒", "Nice": "很好", "Keep holding": "继续保持", "Perfect": "太完美了",
+                    "Great": "做得太棒了", "Excellent": "非常优秀", "Well done": "做得好", "Almost there": "马上就好"
+                }
+            };
+
+            const dirDict = {
+                'zh-HK': {
+                    "next target": "下一個目標", "top left": "左上角", "top center": "正上方", "top right": "右上角",
+                    "middle left": "左邊中間", "center": "正中間", "middle right": "右邊中間", "bottom left": "左下角",
+                    "bottom center": "正下方", "bottom right": "右下角",
+                    "left side, slightly up": "左邊偏上", "right side, slightly down": "右邊偏下"
+                },
+                'zh-CN': {
+                    "next target": "下一个目标", "top left": "左上角", "top center": "正上方", "top right": "右上角",
+                    "middle left": "左边中间", "center": "正中间", "middle right": "右边中间", "bottom left": "左下角",
+                    "bottom center": "正下方", "bottom right": "右下角",
+                    "left side, slightly up": "左边偏上", "right side, slightly down": "右边偏下"
+                }
+            };
+
+            const pTrans = (praiseDict[lang] && praiseDict[lang][praise]) || praise;
+            const dTrans = (dirDict[lang] && dirDict[lang][nextDesc]) || nextDesc;
+
+            if (lang === 'zh-HK') {
+                return `${pTrans}。而家望住${dTrans}嘅黃色星星。`;
+            }
+            if (lang === 'zh-CN') {
+                return `${pTrans}。现在看着${dTrans}的黄色星星。`;
+            }
+        }
+
+        // 4. Starting game: "Starting [Mode]! Get ready, three, two, one, go!"
+        const startingRegex = /Starting\s+(.+?)!\s*Get ready,\s*three,\s*two,\s*one,\s*go!/i;
+        const startingMatch = cleanText.match(startingRegex);
+        if (startingMatch) {
+            const modeName = startingMatch[1].trim();
+            const modeTrans = {
+                'zh-HK': { "Time Attack": "限時挑戰", "Survival": "生存挑戰", "Precision": "精準挑戰", "Zen Practice": "無盡練習" },
+                'zh-CN': { "Time Attack": "限时挑战", "Survival": "生存挑战", "Precision": "精准挑战", "Zen Practice": "无尽练习" }
+            };
+            const mTrans = (modeTrans[lang] && modeTrans[lang][modeName]) || modeName;
+            if (lang === 'zh-HK') {
+                return `${mTrans}模式開始！準備，三，二，一，出發！`;
+            }
+            if (lang === 'zh-CN') {
+                return `${mTrans}模式开始！准备，三，二，一，出发！`;
+            }
+        }
+
+        // 5. Zen milestone dynamic hits: "[h] hits! Unbelievable effort! Keep it up!"
+        const hitsRegex = /^(\d+)\s+hits!\s*Unbelievable effort!\s*Keep it up!/i;
+        const hitsMatch = cleanText.match(hitsRegex);
+        if (hitsMatch) {
+            const h = hitsMatch[1];
+            if (lang === 'zh-HK') {
+                return `${h}個啦！真係難以置信嘅努力！繼續加油呀！`;
+            }
+            if (lang === 'zh-CN') {
+                return `${h}个啦！真是令人难以置信的努力！继续加油呀！`;
+            }
+        }
+
+        // 6. Game over session result: "Great practice session! You popped [hits] targets. Wonderful focus!"
+        const practiceEndRegex = /Great practice session!\s*You popped\s+(\d+)\s+targets\.\s*Wonderful focus!/i;
+        const practiceEndMatch = cleanText.match(practiceEndRegex);
+        if (practiceEndMatch) {
+            const hits = practiceEndMatch[1];
+            if (lang === 'zh-HK') {
+                return `好棒嘅練習！你射爆咗 ${hits} 個目標。專注力真係好厲害！`;
+            }
+            if (lang === 'zh-CN') {
+                return `好棒的练习！你射爆了 ${hits} 个目标。注意力真棒！`;
+            }
+        }
+
+        // 7. Game over classic result: "Game over! Splendid effort! Your final score is [score] points with [accuracy]% accuracy."
+        const gameOverRegex = /Game over!\s*Splendid effort!\s*Your final score is\s+(\d+)\s+points\s+with\s+(\d+)\s+percent\s+accuracy\./i;
+        const gameOverMatch = cleanText.match(gameOverRegex);
+        if (gameOverMatch) {
+            const score = gameOverMatch[1];
+            const accuracy = gameOverMatch[2];
+            if (lang === 'zh-HK') {
+                return `遊戲結束啦！非常之努力！你最後攞到 ${score} 分，同埋百分之 ${accuracy} 嘅準確度。`;
+            }
+            if (lang === 'zh-CN') {
+                return `游戏结束啦！非常非常努力！你最后拿到了 ${score} 分，以及百分之 ${accuracy} 的准确度。`;
+            }
+        }
+
+        return text;
+    }
+
+    _checkZenMilestones() {
+        if (this.mode !== MODE.ZEN) return;
+        const h = this.hits;
+        if (h === 5) {
+            this._speak("Awesome! 5 hits! You are doing great!");
+        } else if (h === 10) {
+            this._speak("Incredible! 10 hits! Superb focus!");
+        } else if (h === 20) {
+            this._speak("Amazing! 20 hits! You are an eye tracking champion!");
+        } else if (h === 30) {
+            this._speak("Woohoo! 30 hits! Outstanding control!");
+        } else if (h === 40) {
+            this._speak("Forty hits! Absolutely brilliant!");
+        } else if (h === 50) {
+            this._speak("Fifty hits! That is stellar! You are a master!");
+        } else if (h > 50 && h % 20 === 0) {
+            this._speak(`${h} hits! Unbelievable effort! Keep it up!`);
         }
     }
 
@@ -1610,6 +2236,30 @@ class Game {
         const triggerModeEl = document.getElementById('triggerModeSelect');
         if (triggerModeEl) triggerModeEl.value = this.settings.triggerMode || 'blink';
 
+        const gazeSmoothingEl = document.getElementById('gazeSmoothingSelect');
+        if (gazeSmoothingEl) gazeSmoothingEl.value = this.settings.gazeSmoothing || 'normal';
+
+        const safeAreaMarginEl = document.getElementById('safeAreaMarginSelect');
+        if (safeAreaMarginEl) safeAreaMarginEl.value = this.settings.safeAreaMargin || '0.09';
+
+        const targetScaleEl = document.getElementById('targetScaleSelect');
+        if (targetScaleEl) targetScaleEl.value = this.settings.targetScale || '1.0';
+
+        const gazeSensitivityEl = document.getElementById('gazeSensitivitySelect');
+        if (gazeSensitivityEl) gazeSensitivityEl.value = this.settings.gazeSensitivity || '1.0';
+
+        const targetThemeEl = document.getElementById('targetThemeSelect');
+        if (targetThemeEl) targetThemeEl.value = this.settings.targetTheme || 'bubbles';
+
+        const voiceGuidanceEl = document.getElementById('voiceGuidanceCheckbox');
+        if (voiceGuidanceEl) voiceGuidanceEl.checked = this.settings.voiceGuidance !== undefined ? this.settings.voiceGuidance : true;
+
+        const voiceLanguageEl = document.getElementById('voiceLanguageSelect');
+        if (voiceLanguageEl) voiceLanguageEl.value = this.settings.voiceLanguage || 'zh-HK';
+
+        const calibrationPointsEl = document.getElementById('calibrationPointsSelect');
+        if (calibrationPointsEl) calibrationPointsEl.value = this.settings.calibrationPoints || '9';
+
         await this._refreshCameraList();
         this._showScreen('settingsScreen');
         this.isSettingsOpen = true;
@@ -1679,6 +2329,13 @@ class Game {
         `;
         document.getElementById('finalStats').innerHTML = html;
         this._showScreen('gameoverScreen');
+
+        // Speak game over results
+        if (this.mode === MODE.ZEN) {
+            this._speak(`Great practice session! You popped ${this.hits} targets. Wonderful focus!`);
+        } else {
+            this._speak(`Game over! Splendid effort! Your final score is ${this.score} points with ${accuracy} percent accuracy.`);
+        }
     }
 
     _renderLeaderboard() {
@@ -1730,6 +2387,8 @@ class Game {
 
     _bindButtons() {
         // Menu
+        document.getElementById('zenBtn')?.addEventListener('click',
+            () => this._startGame(MODE.ZEN));
         document.getElementById('timeAttackBtn').addEventListener('click',
             () => this._startGame(MODE.TIME_ATTACK));
         document.getElementById('survivalBtn').addEventListener('click',
@@ -1821,7 +2480,15 @@ class Game {
             const trackingModeEl = document.getElementById('trackingModeSelect');
             const aimAssistEl = document.getElementById('aimAssistSelect');
             const triggerModeEl = document.getElementById('triggerModeSelect');
-            if (!invertXEl || !invertYEl || !cameraSelectEl || !trackingModeEl || !aimAssistEl || !triggerModeEl) {
+            const gazeSmoothingEl = document.getElementById('gazeSmoothingSelect');
+            const safeAreaMarginEl = document.getElementById('safeAreaMarginSelect');
+            const targetScaleEl = document.getElementById('targetScaleSelect');
+            const gazeSensitivityEl = document.getElementById('gazeSensitivitySelect');
+            const targetThemeEl = document.getElementById('targetThemeSelect');
+            const voiceGuidanceEl = document.getElementById('voiceGuidanceCheckbox');
+            const voiceLanguageEl = document.getElementById('voiceLanguageSelect');
+            const calibrationPointsEl = document.getElementById('calibrationPointsSelect');
+            if (!invertXEl || !invertYEl || !cameraSelectEl || !trackingModeEl || !aimAssistEl || !triggerModeEl || !gazeSmoothingEl || !safeAreaMarginEl || !targetScaleEl || !gazeSensitivityEl || !targetThemeEl || !voiceGuidanceEl || !calibrationPointsEl || !voiceLanguageEl) {
                 this._showError('Settings controls unavailable.', 'Some settings controls are missing from the page. Please reload and try again.');
                 return;
             }
@@ -1832,6 +2499,14 @@ class Game {
             const trackingMode = trackingModeEl.value;
             const aimAssist = aimAssistEl.value;
             const triggerMode = triggerModeEl.value;
+            const gazeSmoothing = gazeSmoothingEl.value;
+            const safeAreaMargin = safeAreaMarginEl.value;
+            const targetScale = targetScaleEl.value;
+            const gazeSensitivity = gazeSensitivityEl.value;
+            const targetTheme = targetThemeEl.value;
+            const voiceGuidance = voiceGuidanceEl.checked;
+            const voiceLanguage = voiceLanguageEl.value;
+            const calibrationPoints = calibrationPointsEl.value;
 
             try {
                 await this._applyCameraSelection(cameraId);
@@ -1840,8 +2515,17 @@ class Game {
                 this.settings.trackingMode = trackingMode;
                 this.settings.aimAssist = aimAssist;
                 this.settings.triggerMode = triggerMode;
+                this.settings.gazeSmoothing = gazeSmoothing;
+                this.settings.safeAreaMargin = safeAreaMargin;
+                this.settings.targetScale = targetScale;
+                this.settings.gazeSensitivity = gazeSensitivity;
+                this.settings.targetTheme = targetTheme;
+                this.settings.voiceGuidance = voiceGuidance;
+                this.settings.voiceLanguage = voiceLanguage;
+                this.settings.calibrationPoints = calibrationPoints;
                 this.settings.cameraDeviceId = this.currentCameraDeviceId || cameraId || '';
                 this._saveSettings();
+                this._updateGazeAlpha();
                 await this._updateTrackingMode();
                 this._closeSettings(false);
             } catch (err) {
@@ -1860,6 +2544,11 @@ class Game {
         // Pause resume
         document.getElementById('resumeBtn')?.addEventListener('click',
             () => this._resumeGame());
+        document.getElementById('pauseMenuBtn')?.addEventListener('click', () => {
+            this._hideAllScreens();
+            document.getElementById('pauseScreen').style.display = 'none';
+            this._goToMenu();
+        });
 
         // Error retry
         document.getElementById('retryBtn')?.addEventListener('click',
