@@ -551,6 +551,26 @@ class Game {
                 };
             }
         }
+
+        // Intercept getUserMedia globally to automatically route WebGazer and other components to the chosen camera device
+        const self = this;
+        if (navigator.mediaDevices && !navigator.mediaDevices._originalGetUserMedia) {
+            navigator.mediaDevices._originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+            navigator.mediaDevices.getUserMedia = async function(constraints) {
+                if (self.settings && self.settings.cameraDeviceId && constraints && constraints.video) {
+                    if (constraints.video === true) {
+                        constraints.video = {
+                            deviceId: { exact: self.settings.cameraDeviceId }
+                        };
+                    } else if (typeof constraints.video === 'object') {
+                        if (!constraints.video.deviceId) {
+                            constraints.video.deviceId = { exact: self.settings.cameraDeviceId };
+                        }
+                    }
+                }
+                return navigator.mediaDevices._originalGetUserMedia.call(navigator.mediaDevices, constraints);
+            };
+        }
     }
 
     get activeVideo() {
@@ -1677,6 +1697,9 @@ class Game {
                     this.video.srcObject = null;
                 }
 
+                // Add a small delay to let the OS release the webcam device lock completely
+                await _sleep(450);
+
                 // Clean the global namespace so WebGazer face mesh loads cleanly
                 if (window.Module) {
                     try { delete window.Module; } catch (e) { window.Module = undefined; }
@@ -2300,7 +2323,43 @@ class Game {
         const nextId = deviceId || '';
         const currentId = this.currentCameraDeviceId || this.settings.cameraDeviceId || '';
         if (nextId === currentId) return;
-        await this._openCamera(nextId);
+
+        const liveTrackingMode = document.getElementById('trackingModeSelect')?.value || this.settings.trackingMode;
+
+        if (liveTrackingMode === 'webgazer') {
+            this.settings.cameraDeviceId = nextId;
+            this.currentCameraDeviceId = nextId;
+            this._saveSettings();
+
+            if (this._webgazerInitialized) {
+                try {
+                    // Stop any existing WebGazer media stream tracks
+                    const wgVideo = document.getElementById('webgazerVideoFeed');
+                    if (wgVideo && wgVideo.srcObject) {
+                        const stream = wgVideo.srcObject;
+                        for (const track of stream.getTracks()) {
+                            track.stop();
+                        }
+                        wgVideo.srcObject = null;
+                    }
+
+                    try {
+                        webgazer.end();
+                    } catch (e) {}
+                    this._webgazerInitialized = false;
+
+                    // Let hardware release the camera device completely
+                    await _sleep(450);
+
+                    // Re-init WebGazer which will trigger our global getUserMedia interceptor to request the new deviceId
+                    await this._initWebGazer();
+                } catch (err) {
+                    console.error('Failed to switch WebGazer camera:', err);
+                }
+            }
+        } else {
+            await this._openCamera(nextId);
+        }
         await this._refreshCameraList();
     }
 
@@ -2437,6 +2496,9 @@ class Game {
                     }
                     this.video.srcObject = null;
                 }
+
+                // Wait for the hardware lock to completely release
+                await _sleep(450);
 
                 try {
                     if (!this._webgazerInitialized) {
