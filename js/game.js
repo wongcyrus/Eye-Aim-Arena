@@ -456,6 +456,16 @@ class Game {
         this._onResize  = this._onResize.bind(this);
     }
 
+    get activeVideo() {
+        if (this.settings.trackingMode === 'webgazer') {
+            const wgVideo = document.getElementById('webgazerVideoFeed');
+            if (wgVideo && wgVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                return wgVideo;
+            }
+        }
+        return this.video;
+    }
+
     // ── Bootstrap ─────────────────────────────────────────────────
 
     async start() {
@@ -516,9 +526,9 @@ class Game {
 
         // If we have saved calibration go straight to menu
         if (this.calibration.isCalibrated()) {
-            this._goToMenu();
+            await this._goToMenu();
         } else {
-            this._startCalibration();
+            await this._startCalibration();
         }
 
         // Kick off the render loop
@@ -534,7 +544,7 @@ class Game {
         this._lastTs = timestamp;
 
         // Eye tracking (every frame)
-        const tracking = this.tracker.processFrame(this.video, timestamp);
+        const tracking = this.tracker.processFrame(this.activeVideo, timestamp);
         if (this.settings.trackingMode === 'webgazer') {
             if (this.webgazerDetected) {
                 // Map the absolute screen pixel coordinates to normalized range [0, 1]
@@ -714,12 +724,13 @@ class Game {
         ctx.fillRect(0, 0, W, H);
 
         // Draw mirrored webcam feed (subtle, darkened)
-        if (this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        const activeVid = this.activeVideo;
+        if (activeVid && activeVid.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
             ctx.save();
             ctx.globalAlpha = 0.18;
             ctx.translate(W, 0);
             ctx.scale(-1, 1);
-            ctx.drawImage(this.video, 0, 0, W, H);
+            ctx.drawImage(activeVid, 0, 0, W, H);
             ctx.restore();
             ctx.globalAlpha = 1;
         }
@@ -828,11 +839,12 @@ class Game {
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, W, H);
 
-        if (this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        const activeVid = this.activeVideo;
+        if (activeVid && activeVid.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
             ctx.save();
             ctx.translate(W, 0);
             ctx.scale(-1, 1);
-            ctx.drawImage(this.video, 0, 0, W, H);
+            ctx.drawImage(activeVid, 0, 0, W, H);
             ctx.restore();
         }
 
@@ -882,11 +894,12 @@ class Game {
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, W, H);
 
-        if (this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        const activeVid = this.activeVideo;
+        if (activeVid && activeVid.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
             ctx.save();
             ctx.translate(W, 0);
             ctx.scale(-1, 1);
-            ctx.drawImage(this.video, 0, 0, W, H);
+            ctx.drawImage(activeVid, 0, 0, W, H);
             ctx.restore();
         }
 
@@ -1036,16 +1049,10 @@ class Game {
         this._hideAllScreens();
         this._setCameraPreviewVisible(true);
 
-        if (this.settings.trackingMode === 'webgazer') {
-            try {
-                if (!this._webgazerInitialized) {
-                    await this._initWebGazer();
-                } else {
-                    webgazer.resume();
-                }
-            } catch (err) {
-                console.warn('Failed to resume/init WebGazer for calibration:', err);
-            }
+        try {
+            await this._updateTrackingMode();
+        } catch (err) {
+            console.error('Failed to update tracking mode for calibration:', err);
         }
 
         this.calibration.start((success) => {
@@ -1058,33 +1065,17 @@ class Game {
         });
     }
 
-    _goToMenu() {
+    async _goToMenu() {
         this.state = STATES.MENU;
         this._hideAllScreens();
         this._setCameraPreviewVisible(false);
         this._renderLeaderboard();
         this._showScreen('menuScreen');
 
-        if (this.settings.trackingMode === 'webgazer') {
-            if (this._webgazerInitialized) {
-                try {
-                    webgazer.resume();
-                } catch (err) {
-                    console.warn('Failed to resume WebGazer in menu:', err);
-                }
-            } else {
-                this._initWebGazer().catch(err => {
-                    console.warn('Failed to initialize WebGazer on menu transition:', err);
-                });
-            }
-        } else {
-            if (this._webgazerInitialized) {
-                try {
-                    webgazer.pause();
-                } catch (err) {
-                    console.warn('Failed to pause WebGazer in menu:', err);
-                }
-            }
+        try {
+            await this._updateTrackingMode();
+        } catch (err) {
+            console.error('Failed to update tracking mode on menu transition:', err);
         }
     }
 
@@ -1259,6 +1250,15 @@ class Game {
         const mode = this.settings.trackingMode;
         if (mode === 'webgazer') {
             try {
+                // Release the webcam resource on our own element to prevent conflicts in Safari
+                if (this.video.srcObject) {
+                    const stream = this.video.srcObject;
+                    for (const track of stream.getTracks()) {
+                        track.stop();
+                    }
+                    this.video.srcObject = null;
+                }
+
                 if (!this._webgazerInitialized) {
                     await this._initWebGazer();
                 } else {
@@ -1286,6 +1286,14 @@ class Game {
                 await this._updateTrackingMode();
             }
         } else {
+            // Re-open our camera for MediaPipe if it's not already open
+            if (!this.video.srcObject) {
+                try {
+                    await this._openCamera(this.settings.cameraDeviceId);
+                } catch (err) {
+                    console.error('Failed to re-open camera on mode switch:', err);
+                }
+            }
             if (this._webgazerInitialized) {
                 try {
                     webgazer.pause();
@@ -1449,7 +1457,7 @@ class Game {
         this._settingsBackup = null;
         this._cameraBackupId = null;
 
-        this._goToMenu();
+        await this._goToMenu();
     }
 
     async _applyCameraSelection(deviceId) {
@@ -1566,18 +1574,49 @@ class Game {
         document.getElementById('trackingModeSelect')?.addEventListener('change', async (e) => {
             const mode = e.target.value;
             if (mode === 'webgazer') {
-                if (!this._webgazerInitialized) {
-                    try {
-                        await this._initWebGazer();
-                    } catch (err) {
-                        console.warn('Failed to initialize WebGazer for preview:', err);
+                // Explicitly stop this.video tracks first to prevent contention in Safari
+                if (this.video.srcObject) {
+                    const stream = this.video.srcObject;
+                    for (const track of stream.getTracks()) {
+                        track.stop();
                     }
-                } else {
-                    webgazer.resume();
+                    this.video.srcObject = null;
+                }
+
+                try {
+                    if (!this._webgazerInitialized) {
+                        await this._initWebGazer();
+                    } else {
+                        webgazer.resume();
+                    }
+                } catch (err) {
+                    console.error('Failed to initialize or resume WebGazer for preview:', err);
+                    alert('WebGazer Eyeball Tracking Failed\n\n' + (err.message || 'An unknown error occurred during WebGazer initialization.') + '\n\nAutomatically falling back to MediaPipe (Iris Tracking) mode.');
+                    
+                    // Reset the select's value programmatically to 'mediapipe'
+                    const selectEl = document.getElementById('trackingModeSelect');
+                    if (selectEl) {
+                        selectEl.value = 'mediapipe';
+                    }
+                    // Call _updateTrackingMode() to restore state synchronization
+                    await this._updateTrackingMode();
                 }
             } else {
                 if (this._webgazerInitialized) {
-                    webgazer.pause();
+                    try {
+                        webgazer.pause();
+                    } catch (err) {
+                        console.warn('Failed to pause WebGazer during preview:', err);
+                    }
+                }
+                // Ensure _openCamera() is re-invoked
+                if (!this.video.srcObject) {
+                    try {
+                        await this._openCamera(this.settings.cameraDeviceId);
+                    } catch (err) {
+                        console.error('Failed to re-open camera on mode preview switch:', err);
+                        this._showError('Camera access failed', err.message);
+                    }
                 }
             }
         });
