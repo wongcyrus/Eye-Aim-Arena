@@ -70,6 +70,92 @@ const SURVIVAL_BASE_MAX_TARGETS = 3;
 const SURVIVAL_HARD_MAX_TARGETS = 8;
 
 // ─────────────────────────────────────────────────────────────────────
+//  Custom asset support — image cache & IndexedDB store
+// ─────────────────────────────────────────────────────────────────────
+
+const _imgCache = new Map(); // url → HTMLImageElement
+
+function _getCachedImage(url) {
+    if (_imgCache.has(url)) return _imgCache.get(url);
+    const img = new Image();
+    img.src = url;
+    _imgCache.set(url, img);
+    return img;
+}
+
+class AssetStore {
+    constructor(dbName) {
+        this.dbName = dbName;
+        this.db = null;
+    }
+
+    open() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(this.dbName, 1);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains('images')) {
+                    db.createObjectStore('images', { keyPath: 'id', autoIncrement: true });
+                }
+                if (!db.objectStoreNames.contains('audio')) {
+                    db.createObjectStore('audio', { keyPath: 'id' });
+                }
+            };
+            req.onsuccess = (e) => { this.db = e.target.result; resolve(); };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    addImage(name, type, blob) {
+        return new Promise((resolve, reject) => {
+            const req = this.db.transaction('images', 'readwrite').objectStore('images').add({ name, type, blob });
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    getAllImages() {
+        return new Promise((resolve, reject) => {
+            const req = this.db.transaction('images', 'readonly').objectStore('images').getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    deleteImage(id) {
+        return new Promise((resolve, reject) => {
+            const req = this.db.transaction('images', 'readwrite').objectStore('images').delete(id);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    setAudio(name, blob) {
+        return new Promise((resolve, reject) => {
+            const req = this.db.transaction('audio', 'readwrite').objectStore('audio').put({ id: 1, name, blob });
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    getAudio() {
+        return new Promise((resolve, reject) => {
+            const req = this.db.transaction('audio', 'readonly').objectStore('audio').get(1);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    deleteAudio() {
+        return new Promise((resolve, reject) => {
+            const req = this.db.transaction('audio', 'readwrite').objectStore('audio').delete(1);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 //  Audio (Web Audio API — no external files)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -187,6 +273,9 @@ class Target {
         this.hitTime = 0;
         this.expired = false;
 
+        /** Optional custom image URL (set by createTarget when targetMode is 'custom') */
+        this.imageUrl = cfg.imageUrl || null;
+
         const emojis = ["🐶", "🐱", "🐻", "🐸", "🐼", "🐨", "🐰", "🦁", "🐵", "🦊", "🐯", "🐧"];
         this.emoji = emojis[Math.floor(Math.random() * emojis.length)];
     }
@@ -262,6 +351,41 @@ class Target {
         ctx.beginPath();
         ctx.arc(px, py, r * 1.6, 0, Math.PI * 2);
         ctx.fill();
+
+        // Custom image rendering (overrides theme when image is ready)
+        if (this.imageUrl) {
+            const img = _getCachedImage(this.imageUrl);
+            if (img.complete && img.naturalWidth > 0) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(px, py, r, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(img, px - r, py - r, r * 2, r * 2);
+                ctx.restore();
+                // White border
+                ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(px, py, r, 0, Math.PI * 2);
+                ctx.stroke();
+                // Danger flash and alpha cleanup handled below — skip default theme
+                if (lifeRat > DANGER_FLASH_START) {
+                    const flash = Math.sin(
+                        (lifeRat - DANGER_FLASH_START) / DANGER_FLASH_RANGE * Math.PI * DANGER_FLASH_FREQ
+                    ) > 0;
+                    if (flash) {
+                        ctx.strokeStyle = '#ff4444';
+                        ctx.lineWidth   = 3;
+                        ctx.beginPath();
+                        ctx.arc(px, py, r + 5, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+                ctx.globalAlpha = 1;
+                return;
+            }
+            // Image not loaded yet — fall through to default bubble for this frame
+        }
 
         const theme = window.game?.settings?.targetTheme || 'bubbles';
 
@@ -413,14 +537,28 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK, settings = null) 
         margin = parseFloat(settings.safeAreaMargin);
     }
 
-    // Calculate spawning boundaries [margin, 1 - margin]
-    const minX = margin;
-    const maxX = 1 - margin;
-    const minY = margin;
-    const maxY = 1 - margin;
+    // Enforce pixel-safe margin so large targets always stay fully visible
+    const screenW = window.innerWidth  || 1280;
+    const screenH = window.innerHeight || 720;
+    const pixMarginX = (radius + 4) / screenW;
+    const pixMarginY = (radius + 4) / screenH;
+    const safeMarginX = Math.max(margin, pixMarginX);
+    const safeMarginY = Math.max(margin, pixMarginY);
 
-    const x = minX + Math.random() * (maxX - minX);
-    const y = minY + Math.random() * (maxY - minY);
+    const minX = safeMarginX;
+    const maxX = 1 - safeMarginX;
+    const minY = safeMarginY;
+    const maxY = 1 - safeMarginY;
+
+    const x = minX + Math.random() * (Math.max(0, maxX - minX));
+    const y = minY + Math.random() * (Math.max(0, maxY - minY));
+
+    // Resolve custom image URL (if targetMode is 'custom' and images are available)
+    let imageUrl = null;
+    if (settings && settings.targetMode === 'custom' && window.game && window.game._customImages && window.game._customImages.length > 0) {
+        const imgs = window.game._customImages;
+        imageUrl = imgs[Math.floor(Math.random() * imgs.length)].url;
+    }
 
     const target = new Target({
         x,
@@ -432,9 +570,10 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK, settings = null) 
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         lifetime,
+        imageUrl,
     });
 
-    target.safeAreaMargin = margin;
+    target.safeAreaMargin = Math.max(margin, pixMarginX);
 
     return target;
 }
@@ -499,6 +638,12 @@ class Game {
         this._updateGazeAlpha();
         this.availableCameras = [];
         this.currentCameraDeviceId = this.settings.cameraDeviceId || '';
+
+        // Custom assets
+        this._assetStore  = new AssetStore('eyeAimArenaDB');
+        this._customImages = []; // [{id, name, url}]
+        this._bgMusicUrl   = null;
+        this._bgAudio      = null; // set in start()
 
         // State
         this.state    = STATES.LOADING;
@@ -590,22 +735,40 @@ class Game {
         window.addEventListener('resize', this._onResize);
         window.addEventListener('keydown', this._onKeyDown);
 
+        // Wire up background audio element
+        this._bgAudio = document.getElementById('bgMusic');
+        if (this._bgAudio) {
+            this._bgAudio.volume = Math.min(1, Math.max(0, this.settings.audioVolume ?? 0.7));
+            this._bgAudio.muted  = this.settings.audioMuted || false;
+            this._bgAudio.loop   = this.settings.audioLoop !== false;
+        }
+
         // Tab visibility state tracking to pause/resume WebGazer
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 if (this._webgazerInitialized) {
                     try { webgazer.pause(); } catch (err) {}
                 }
+                this._pauseBgMusic();
             } else {
                 if (this._webgazerInitialized && this.settings.trackingMode === 'webgazer' && 
                     (this.state === STATES.MENU || this.state === STATES.PLAYING || this.state === STATES.CALIBRATION || this.isSettingsOpen)) {
                     try { webgazer.resume(); } catch (err) {}
                 }
+                if (this.state === STATES.PLAYING) this._resumeBgMusic();
             }
         });
 
         this._showScreen('loadingScreen');
         this._setProgress(5, 'Requesting camera…');
+
+        // Load custom assets from IndexedDB (non-blocking – errors are silently ignored)
+        this._assetStore.open().then(() => {
+            this._loadCustomImages();
+            this._loadCustomAudio();
+        }).catch(err => {
+            console.warn('IndexedDB unavailable; custom assets will not persist:', err);
+        });
 
         // Webcam
         try {
@@ -827,10 +990,12 @@ class Game {
 
         // ---- Gaze Dwell Logic ----
         if (isDwellMode) {
-            let dwellLimit = 1000;
-            if (triggerMode === 'dwell_short') dwellLimit = 500;
-            if (triggerMode === 'dwell_medium') dwellLimit = 1000;
-            if (triggerMode === 'dwell_long') dwellLimit = 1500;
+            // Resolve dwell limit: presets or custom configurable value
+            let dwellLimit;
+            if (triggerMode === 'dwell_short')       dwellLimit = 500;
+            else if (triggerMode === 'dwell_medium')  dwellLimit = 1000;
+            else if (triggerMode === 'dwell_long')    dwellLimit = 1500;
+            else /* dwell_custom */                   dwellLimit = this.settings.gazeDwellMs || 2000;
 
             if (hoveredTarget) {
                 if (this._dwellTarget !== hoveredTarget) {
@@ -903,8 +1068,10 @@ class Game {
             return true;
         });
 
-        // Survival lives penalty for missed targets
-        if (this.mode === MODE.SURVIVAL && missedCount > 0) {
+        // Survival lives penalty for missed targets (skipped during grace period)
+        const gracePeriodMs = (this.settings.gracePeriodSec || 0) * 1000;
+        const inGracePeriod = elapsed < gracePeriodMs;
+        if (this.mode === MODE.SURVIVAL && missedCount > 0 && !inGracePeriod) {
             this.lives = Math.max(0, this.lives - missedCount);
             this.audio.playMiss();
             this._updateLivesBar();
@@ -1322,6 +1489,17 @@ class Game {
     // ── Game lifecycle ────────────────────────────────────────────
 
     async _startCalibration() {
+        // Show pre-calibration guide modal if the setting is enabled
+        if (this.settings.showCalibrationGuide) {
+            this._hideAllScreens();
+            this._showScreen('calibrationGuideModal');
+            // The actual calibration is started by the modal buttons (wired in _bindButtons)
+            return;
+        }
+        await this._beginCalibration();
+    }
+
+    async _beginCalibration() {
         this.state = STATES.CALIBRATION;
         this._hideAllScreens();
         this._setCameraPreviewVisible(true);
@@ -1424,11 +1602,16 @@ class Game {
         } else {
             this.spawnInterval = mode === MODE.SURVIVAL ? 2800 : 2500;
         }
+        // Use configurable round duration (Time Attack only; other modes are open-ended)
+        this.gameDuration = (this.settings.roundDurationSec || 60) * 1000;
         this.startTime   = performance.now();
 
         this._hideAllScreens();
         this._showHUD(mode);
         this._updateHUD();
+
+        // Start background music after the user's click gesture (satisfies autoplay policy)
+        this._startBgMusic();
 
         // Speak starting guidance
         if (mode === MODE.ZEN) {
@@ -1449,6 +1632,7 @@ class Game {
 
         saveScore({ mode: this.mode, score: this.score, accuracy, elapsed, date: Date.now() });
         this.audio.playGameOver();
+        this._stopBgMusic();
         this._hideHUD();
         this._showGameOver(accuracy, elapsed);
     }
@@ -1456,12 +1640,14 @@ class Game {
     _pauseGame() {
         if (this.state !== STATES.PLAYING) return;
         this.state = STATES.PAUSED;
+        this._pauseBgMusic();
         document.getElementById('pauseScreen').style.display = 'flex';
     }
 
     _resumeGame() {
         if (this.state !== STATES.PAUSED) return;
         this.state = STATES.PLAYING;
+        this._resumeBgMusic();
         document.getElementById('pauseScreen').style.display = 'none';
     }
 
@@ -1508,17 +1694,29 @@ class Game {
         }
         document.getElementById('eyeStatus').textContent = this._getEyeStatusText();
 
+        const nowMs = performance.now() - this.startTime;
+        const gracePeriodMs = (this.settings.gracePeriodSec || 0) * 1000;
+        const graceRemaining = Math.ceil(Math.max(0, gracePeriodMs - nowMs) / 1000);
+
         if (this.mode === MODE.TIME_ATTACK) {
-            const remaining = Math.max(0, Math.ceil((this.gameDuration - (performance.now() - this.startTime)) / 1000));
-            document.getElementById('timerDisplay').textContent = `Time: ${remaining}s`;
+            if (graceRemaining > 0) {
+                document.getElementById('timerDisplay').textContent = `⏳ Grace: ${graceRemaining}s`;
+            } else {
+                const remaining = Math.max(0, Math.ceil((this.gameDuration - nowMs) / 1000));
+                document.getElementById('timerDisplay').textContent = `Time: ${remaining}s`;
+            }
         } else if (this.mode === MODE.SURVIVAL) {
-            const elapsed = Math.floor((performance.now() - this.startTime) / 1000);
-            document.getElementById('timerDisplay').textContent = `Time: ${elapsed}s`;
+            if (graceRemaining > 0) {
+                document.getElementById('timerDisplay').textContent = `⏳ Grace: ${graceRemaining}s`;
+            } else {
+                const elapsed = Math.floor(nowMs / 1000);
+                document.getElementById('timerDisplay').textContent = `Time: ${elapsed}s`;
+            }
         } else if (this.mode === MODE.PRECISION) {
             document.getElementById('timerDisplay').textContent =
                 `Round: ${this.precisionRounds}/${this.precisionTotal}`;
         } else if (this.mode === MODE.ZEN) {
-            const elapsed = Math.floor((performance.now() - this.startTime) / 1000);
+            const elapsed = Math.floor(nowMs / 1000);
             const m = Math.floor(elapsed / 60);
             const s = elapsed % 60;
             document.getElementById('timerDisplay').textContent = `Practice: ${m}:${s.toString().padStart(2, '0')}`;
@@ -1533,7 +1731,7 @@ class Game {
     // ── Screen management ─────────────────────────────────────────
 
     _hideAllScreens() {
-        ['loadingScreen', 'menuScreen', 'settingsScreen', 'gameoverScreen'].forEach(id => {
+        ['loadingScreen', 'menuScreen', 'settingsScreen', 'gameoverScreen', 'calibrationGuideModal'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
@@ -1777,6 +1975,15 @@ class Game {
             voiceGuidance: true,
             voiceLanguage: 'zh-HK',
             calibrationPoints: '9',
+            // New settings
+            gazeDwellMs: 2000,
+            roundDurationSec: 60,
+            gracePeriodSec: 5,
+            showCalibrationGuide: true,
+            targetMode: 'default',
+            audioVolume: 0.7,
+            audioLoop: true,
+            audioMuted: false,
         };
     }
 
@@ -1792,7 +1999,7 @@ class Game {
                 cameraDeviceId: typeof parsed.cameraDeviceId === 'string' ? parsed.cameraDeviceId : '',
                 trackingMode: parsed.trackingMode === 'webgazer' ? 'webgazer' : 'mediapipe',
                 aimAssist: (parsed.aimAssist === 'high' || parsed.aimAssist === 'off') ? parsed.aimAssist : 'normal',
-                triggerMode: ['blink', 'auto', 'dwell_short', 'dwell_medium', 'dwell_long'].includes(parsed.triggerMode) ? parsed.triggerMode : defaults.triggerMode,
+                triggerMode: ['blink', 'auto', 'dwell_short', 'dwell_medium', 'dwell_long', 'dwell_custom'].includes(parsed.triggerMode) ? parsed.triggerMode : defaults.triggerMode,
                 gazeSmoothing: ['normal', 'high', 'heavy'].includes(parsed.gazeSmoothing) ? parsed.gazeSmoothing : defaults.gazeSmoothing,
                 safeAreaMargin: typeof parsed.safeAreaMargin === 'string' ? parsed.safeAreaMargin : defaults.safeAreaMargin,
                 targetScale: typeof parsed.targetScale === 'string' ? parsed.targetScale : defaults.targetScale,
@@ -1801,6 +2008,15 @@ class Game {
                 voiceGuidance: parsed.voiceGuidance !== undefined ? Boolean(parsed.voiceGuidance) : defaults.voiceGuidance,
                 voiceLanguage: ['en', 'zh-HK', 'zh-CN'].includes(parsed.voiceLanguage) ? parsed.voiceLanguage : defaults.voiceLanguage,
                 calibrationPoints: ['9', '5', '3'].includes(parsed.calibrationPoints) ? parsed.calibrationPoints : defaults.calibrationPoints,
+                // New settings
+                gazeDwellMs: (typeof parsed.gazeDwellMs === 'number') ? Math.min(4000, Math.max(1000, parsed.gazeDwellMs)) : defaults.gazeDwellMs,
+                roundDurationSec: (typeof parsed.roundDurationSec === 'number') ? Math.min(300, Math.max(30, parsed.roundDurationSec)) : defaults.roundDurationSec,
+                gracePeriodSec: (typeof parsed.gracePeriodSec === 'number') ? Math.min(15, Math.max(0, parsed.gracePeriodSec)) : defaults.gracePeriodSec,
+                showCalibrationGuide: parsed.showCalibrationGuide !== undefined ? Boolean(parsed.showCalibrationGuide) : defaults.showCalibrationGuide,
+                targetMode: parsed.targetMode === 'custom' ? 'custom' : 'default',
+                audioVolume: (typeof parsed.audioVolume === 'number') ? Math.min(1, Math.max(0, parsed.audioVolume)) : defaults.audioVolume,
+                audioLoop: parsed.audioLoop !== undefined ? Boolean(parsed.audioLoop) : defaults.audioLoop,
+                audioMuted: parsed.audioMuted !== undefined ? Boolean(parsed.audioMuted) : defaults.audioMuted,
             };
         } catch {
             return defaults;
@@ -2283,6 +2499,50 @@ class Game {
         const calibrationPointsEl = document.getElementById('calibrationPointsSelect');
         if (calibrationPointsEl) calibrationPointsEl.value = this.settings.calibrationPoints || '9';
 
+        // ── New settings controls ────────────────────────────────────
+        // Custom dwell time slider
+        const dwellSlider = document.getElementById('gazeDwellSlider');
+        const dwellLabel  = document.getElementById('dwellTimeLabel');
+        const customDwellGroup = document.getElementById('customDwellGroup');
+        if (dwellSlider) dwellSlider.value = this.settings.gazeDwellMs || 2000;
+        if (dwellLabel) dwellLabel.textContent = `${((this.settings.gazeDwellMs || 2000) / 1000).toFixed(2).replace(/\.?0+$/, '')}s`;
+        if (customDwellGroup) customDwellGroup.style.display = (this.settings.triggerMode === 'dwell_custom') ? '' : 'none';
+
+        // Round duration + grace period sliders
+        const roundSlider = document.getElementById('roundDurationSlider');
+        const roundLabel  = document.getElementById('roundDurationLabel');
+        const gracSlider  = document.getElementById('gracePeriodSlider');
+        const gracLabel   = document.getElementById('gracePeriodLabel');
+        if (roundSlider) roundSlider.value = this.settings.roundDurationSec || 60;
+        if (roundLabel) roundLabel.textContent = `${this.settings.roundDurationSec || 60}s`;
+        if (gracSlider) gracSlider.value = this.settings.gracePeriodSec || 5;
+        if (gracLabel) gracLabel.textContent = `${this.settings.gracePeriodSec || 5}s`;
+
+        // Custom target images toggle
+        const customTargetsEl = document.getElementById('useCustomTargetsCheckbox');
+        if (customTargetsEl) customTargetsEl.checked = this.settings.targetMode === 'custom';
+        this._refreshImagePreviews();
+
+        // Background music controls
+        const bgMuteEl   = document.getElementById('bgMusicMuteCheckbox');
+        const bgLoopEl   = document.getElementById('bgMusicLoopCheckbox');
+        const bgVolSlider = document.getElementById('bgMusicVolumeSlider');
+        const bgVolLabel  = document.getElementById('bgMusicVolumeLabel');
+        const bgInfo      = document.getElementById('bgMusicInfo');
+        if (bgMuteEl)    bgMuteEl.checked = this.settings.audioMuted || false;
+        if (bgLoopEl)    bgLoopEl.checked = this.settings.audioLoop !== false;
+        if (bgVolSlider) bgVolSlider.value = Math.round((this.settings.audioVolume ?? 0.7) * 100);
+        if (bgVolLabel)  bgVolLabel.textContent = `${Math.round((this.settings.audioVolume ?? 0.7) * 100)}%`;
+        if (bgInfo && this._bgMusicUrl) {
+            bgInfo.textContent = this._bgMusicName ? `Loaded: ${this._bgMusicName}` : 'Custom track loaded';
+        } else if (bgInfo) {
+            bgInfo.textContent = 'No custom track. Default sounds only.';
+        }
+
+        // Calibration guide toggle
+        const calGuideEl = document.getElementById('showCalibrationGuideCheckbox');
+        if (calGuideEl) calGuideEl.checked = this.settings.showCalibrationGuide !== false;
+
         await this._refreshCameraList();
         this._showScreen('settingsScreen');
         this.isSettingsOpen = true;
@@ -2570,6 +2830,24 @@ class Game {
             const voiceLanguage = voiceLanguageEl.value;
             const calibrationPoints = calibrationPointsEl.value;
 
+            // New settings
+            const gazeDwellSlider = document.getElementById('gazeDwellSlider');
+            const roundDurationSlider = document.getElementById('roundDurationSlider');
+            const gracePeriodSlider = document.getElementById('gracePeriodSlider');
+            const useCustomTargetsEl = document.getElementById('useCustomTargetsCheckbox');
+            const bgMuteEl = document.getElementById('bgMusicMuteCheckbox');
+            const bgLoopEl = document.getElementById('bgMusicLoopCheckbox');
+            const bgVolSlider = document.getElementById('bgMusicVolumeSlider');
+            const calGuideEl = document.getElementById('showCalibrationGuideCheckbox');
+            const gazeDwellMs = gazeDwellSlider ? parseInt(gazeDwellSlider.value) : (this.settings.gazeDwellMs || 2000);
+            const roundDurationSec = roundDurationSlider ? parseInt(roundDurationSlider.value) : (this.settings.roundDurationSec || 60);
+            const gracePeriodSec = gracePeriodSlider ? parseInt(gracePeriodSlider.value) : (this.settings.gracePeriodSec || 5);
+            const targetMode = (useCustomTargetsEl && useCustomTargetsEl.checked && this._customImages.length > 0) ? 'custom' : 'default';
+            const audioMuted = bgMuteEl ? bgMuteEl.checked : this.settings.audioMuted;
+            const audioLoop = bgLoopEl ? bgLoopEl.checked : this.settings.audioLoop;
+            const audioVolume = bgVolSlider ? parseInt(bgVolSlider.value) / 100 : this.settings.audioVolume;
+            const showCalibrationGuide = calGuideEl ? calGuideEl.checked : this.settings.showCalibrationGuide;
+
             try {
                 await this._applyCameraSelection(cameraId);
                 this.settings.invertX = invertX;
@@ -2586,12 +2864,171 @@ class Game {
                 this.settings.voiceLanguage = voiceLanguage;
                 this.settings.calibrationPoints = calibrationPoints;
                 this.settings.cameraDeviceId = this.currentCameraDeviceId || cameraId || '';
+                // New settings
+                this.settings.gazeDwellMs = gazeDwellMs;
+                this.settings.roundDurationSec = roundDurationSec;
+                this.settings.gracePeriodSec = gracePeriodSec;
+                this.settings.targetMode = targetMode;
+                this.settings.audioMuted = audioMuted;
+                this.settings.audioLoop = audioLoop;
+                this.settings.audioVolume = audioVolume;
+                this.settings.showCalibrationGuide = showCalibrationGuide;
+                // Apply audio preferences immediately
+                if (this._bgAudio) {
+                    this._bgAudio.volume = audioVolume;
+                    this._bgAudio.muted  = audioMuted;
+                    this._bgAudio.loop   = audioLoop;
+                }
                 this._saveSettings();
                 this._updateGazeAlpha();
                 await this._updateTrackingMode();
                 this._closeSettings(false);
             } catch (err) {
                 this._showError('Failed to switch camera.', err.message);
+            }
+        });
+
+        // Trigger mode change — show/hide custom dwell slider
+        document.getElementById('triggerModeSelect')?.addEventListener('change', (e) => {
+            const customDwellGroup = document.getElementById('customDwellGroup');
+            if (customDwellGroup) customDwellGroup.style.display = (e.target.value === 'dwell_custom') ? '' : 'none';
+        });
+
+        // Live label updates for range sliders
+        document.getElementById('gazeDwellSlider')?.addEventListener('input', (e) => {
+            const label = document.getElementById('dwellTimeLabel');
+            if (label) label.textContent = `${(parseInt(e.target.value) / 1000).toFixed(2).replace(/\.?0+$/, '')}s`;
+        });
+        document.getElementById('roundDurationSlider')?.addEventListener('input', (e) => {
+            const label = document.getElementById('roundDurationLabel');
+            if (label) label.textContent = `${e.target.value}s`;
+        });
+        document.getElementById('gracePeriodSlider')?.addEventListener('input', (e) => {
+            const label = document.getElementById('gracePeriodLabel');
+            if (label) label.textContent = `${e.target.value}s`;
+        });
+        document.getElementById('bgMusicVolumeSlider')?.addEventListener('input', (e) => {
+            const label = document.getElementById('bgMusicVolumeLabel');
+            if (label) label.textContent = `${e.target.value}%`;
+            // Live volume preview
+            if (this._bgAudio) this._bgAudio.volume = parseInt(e.target.value) / 100;
+        });
+
+        // Custom target image upload
+        document.getElementById('targetImageUpload')?.addEventListener('change', async (e) => {
+            const errorEl = document.getElementById('targetImageError');
+            if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+            const files = Array.from(e.target.files || []);
+            const MAX_IMAGES = 10;
+            const MAX_SIZE   = 2 * 1024 * 1024; // 2 MB
+            const ALLOWED    = ['image/png', 'image/jpeg', 'image/webp'];
+
+            if (this._customImages.length + files.length > MAX_IMAGES) {
+                if (errorEl) { errorEl.style.display = ''; errorEl.textContent = `Maximum ${MAX_IMAGES} images allowed. Remove some first.`; }
+                e.target.value = '';
+                return;
+            }
+
+            for (const file of files) {
+                if (!ALLOWED.includes(file.type)) {
+                    if (errorEl) { errorEl.style.display = ''; errorEl.textContent = `"${file.name}" is not a supported image (PNG/JPG/WebP).`; }
+                    e.target.value = '';
+                    return;
+                }
+                if (file.size > MAX_SIZE) {
+                    if (errorEl) { errorEl.style.display = ''; errorEl.textContent = `"${file.name}" exceeds the 2 MB limit.`; }
+                    e.target.value = '';
+                    return;
+                }
+            }
+
+            for (const file of files) {
+                let id = null;
+                const blob = file.slice(0, file.size, file.type);
+                if (this._assetStore.db) {
+                    id = await this._assetStore.addImage(file.name, file.type, blob).catch(() => null);
+                }
+                const url = URL.createObjectURL(blob);
+                this._customImages.push({ id, name: file.name, url });
+                _getCachedImage(url); // pre-load
+            }
+            this._refreshImagePreviews();
+            e.target.value = '';
+        });
+
+        // Background music upload
+        document.getElementById('bgMusicUpload')?.addEventListener('change', async (e) => {
+            const errorEl = document.getElementById('bgMusicError');
+            const infoEl  = document.getElementById('bgMusicInfo');
+            if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+
+            if (file.type !== 'audio/mpeg' && !file.name.toLowerCase().endsWith('.mp3')) {
+                if (errorEl) { errorEl.style.display = ''; errorEl.textContent = 'Only MP3 files are supported.'; }
+                e.target.value = '';
+                return;
+            }
+            const MAX_AUDIO = 20 * 1024 * 1024; // 20 MB
+            if (file.size > MAX_AUDIO) {
+                if (errorEl) { errorEl.style.display = ''; errorEl.textContent = 'File exceeds the 20 MB limit.'; }
+                e.target.value = '';
+                return;
+            }
+
+            // Revoke old blob URL if any
+            if (this._bgMusicUrl) {
+                URL.revokeObjectURL(this._bgMusicUrl);
+                this._bgMusicUrl = null;
+            }
+
+            const blob = file.slice(0, file.size, file.type);
+            this._bgMusicUrl  = URL.createObjectURL(blob);
+            this._bgMusicName = file.name;
+            if (this._bgAudio) {
+                this._bgAudio.src = this._bgMusicUrl;
+                this._bgAudio.load();
+            }
+            if (infoEl) infoEl.textContent = `Loaded: ${file.name}`;
+
+            // Persist to IndexedDB
+            if (this._assetStore.db) {
+                await this._assetStore.setAudio(file.name, blob).catch(err => console.warn('Could not save audio to DB:', err));
+            }
+            e.target.value = '';
+        });
+
+        // Remove background music
+        document.getElementById('removeBgMusicBtn')?.addEventListener('click', async () => {
+            if (this._bgMusicUrl) URL.revokeObjectURL(this._bgMusicUrl);
+            this._bgMusicUrl  = null;
+            this._bgMusicName = null;
+            if (this._bgAudio) { this._bgAudio.pause(); this._bgAudio.removeAttribute('src'); this._bgAudio.load(); }
+            const infoEl = document.getElementById('bgMusicInfo');
+            if (infoEl) infoEl.textContent = 'No custom track. Default sounds only.';
+            if (this._assetStore.db) await this._assetStore.deleteAudio().catch(() => {});
+        });
+
+        // Calibration guide modal buttons
+        document.getElementById('startCalibrationFromGuideBtn')?.addEventListener('click',
+            () => this._beginCalibration());
+        document.getElementById('skipCalibrationGuideBtn')?.addEventListener('click',
+            () => this._beginCalibration());
+
+        // Reset settings to defaults
+        document.getElementById('resetSettingsBtn')?.addEventListener('click', async () => {
+            const defaults = this._defaultSettings();
+            // Keep camera ID so the camera stays connected
+            const keepCameraId = this.settings.cameraDeviceId;
+            Object.assign(this.settings, defaults);
+            this.settings.cameraDeviceId = keepCameraId;
+            this._saveSettings();
+            this._updateGazeAlpha();
+            try {
+                await this._openSettings();
+            } catch (err) {
+                console.error('Failed to reload settings panel after reset:', err);
             }
         });
 
@@ -2621,11 +3058,99 @@ class Game {
             if (this.state === STATES.PLAYING) this._shoot();
         });
     }
+
+    // ── Custom image helpers ───────────────────────────────────────
+
+    async _loadCustomImages() {
+        if (!this._assetStore.db) return;
+        const records = await this._assetStore.getAllImages().catch(() => []);
+        this._customImages = records.map(r => ({
+            id:   r.id,
+            name: r.name,
+            url:  URL.createObjectURL(r.blob),
+        }));
+        this._customImages.forEach(img => _getCachedImage(img.url));
+        this._refreshImagePreviews();
+    }
+
+    _refreshImagePreviews() {
+        const container = document.getElementById('targetImagePreviews');
+        if (!container) return;
+        container.innerHTML = '';
+        for (const img of this._customImages) {
+            const wrap = document.createElement('div');
+            wrap.className = 'image-preview-item';
+
+            const thumb = document.createElement('img');
+            thumb.src = img.url;
+            thumb.alt = img.name;
+            wrap.appendChild(thumb);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'image-preview-remove';
+            removeBtn.title = `Remove ${img.name}`;
+            removeBtn.textContent = '✕';
+            removeBtn.addEventListener('click', async () => {
+                // Revoke object URL
+                URL.revokeObjectURL(img.url);
+                _imgCache.delete(img.url);
+                // Remove from DB
+                if (this._assetStore.db && img.id != null) {
+                    await this._assetStore.deleteImage(img.id).catch(() => {});
+                }
+                // Remove from array
+                this._customImages = this._customImages.filter(i => i !== img);
+                // If no images remain, switch back to default mode
+                if (this._customImages.length === 0 && this.settings.targetMode === 'custom') {
+                    this.settings.targetMode = 'default';
+                    const el = document.getElementById('useCustomTargetsCheckbox');
+                    if (el) el.checked = false;
+                }
+                this._refreshImagePreviews();
+            });
+            wrap.appendChild(removeBtn);
+            container.appendChild(wrap);
+        }
+    }
+
+    // ── Custom audio helpers ───────────────────────────────────────
+
+    async _loadCustomAudio() {
+        if (!this._assetStore.db) return;
+        const record = await this._assetStore.getAudio().catch(() => null);
+        if (record && record.blob) {
+            if (this._bgMusicUrl) URL.revokeObjectURL(this._bgMusicUrl);
+            this._bgMusicUrl  = URL.createObjectURL(record.blob);
+            this._bgMusicName = record.name;
+        }
+    }
+
+    _startBgMusic() {
+        if (!this._bgAudio || !this._bgMusicUrl) return;
+        if (this._bgAudio.src !== this._bgMusicUrl) {
+            this._bgAudio.src = this._bgMusicUrl;
+            this._bgAudio.load();
+        }
+        this._bgAudio.play().catch(err => console.warn('Background music play blocked:', err));
+    }
+
+    _stopBgMusic() {
+        if (!this._bgAudio) return;
+        this._bgAudio.pause();
+        this._bgAudio.currentTime = 0;
+    }
+
+    _pauseBgMusic() {
+        if (!this._bgAudio) return;
+        this._bgAudio.pause();
+    }
+
+    _resumeBgMusic() {
+        if (!this._bgAudio || !this._bgMusicUrl) return;
+        this._bgAudio.play().catch(() => {});
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-//  Helpers
-// ─────────────────────────────────────────────────────────────────────
 
 function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 

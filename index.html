@@ -16,6 +16,25 @@
 <!-- Webcam feed (hidden — only used by MediaPipe) -->
 <video id="webcamVideo" autoplay playsinline muted></video>
 
+<!-- ── Calibration Guide Modal ─────────────────────────── -->
+<div id="calibrationGuideModal" class="overlay">
+    <div class="overlay-content calibration-guide-content">
+        <h2>📋 Setup Checklist</h2>
+        <p class="calibration-guide-intro">Please check the following before calibrating for best results:</p>
+        <ul class="calibration-checklist">
+            <li><span class="check-icon">👁️</span> <strong>Eye level:</strong> Keep your eyes approximately horizontal with the camera lens</li>
+            <li><span class="check-icon">📏</span> <strong>Distance:</strong> Sit 40–70 cm (16–28 inches) from the camera</li>
+            <li><span class="check-icon">🎯</span> <strong>Face position:</strong> Center your face within the camera view</li>
+            <li><span class="check-icon">💡</span> <strong>Lighting:</strong> Use even, front-facing light; avoid strong backlights or shadows</li>
+            <li><span class="check-icon">🧘</span> <strong>Head stability:</strong> Keep your head as still as possible during calibration</li>
+        </ul>
+        <div class="gameover-buttons" style="margin-top:1.5rem;">
+            <button id="startCalibrationFromGuideBtn">✅ &nbsp;Ready – Start Calibration</button>
+            <button id="skipCalibrationGuideBtn" class="secondary-btn">Skip</button>
+        </div>
+    </div>
+</div>
+
 <!-- ── Loading screen ──────────────────────────────────── -->
 <div id="loadingScreen" class="overlay">
     <div class="overlay-content">
@@ -90,8 +109,14 @@
                         <option value="dwell_short">Dwell Trigger (Hold gaze 0.5s - Easy)</option>
                         <option value="dwell_medium">Dwell Trigger (Hold gaze 1.0s - Recommended)</option>
                         <option value="dwell_long">Dwell Trigger (Hold gaze 1.5s - Steady Focus)</option>
+                        <option value="dwell_custom">Dwell Trigger (Custom Duration)</option>
                     </select>
                     <p class="settings-hint">"Dwell Trigger" lets the child pop targets simply by holding their gaze steady on them, training focused attention.</p>
+                </div>
+                <div id="customDwellGroup" class="settings-group" style="display:none;">
+                    <label for="gazeDwellSlider">Custom Dwell Time: <span id="dwellTimeLabel">2.0s</span></label>
+                    <input type="range" id="gazeDwellSlider" min="1000" max="4000" step="250" value="2000">
+                    <p class="settings-hint">Set how long the user must hold gaze on a target before it triggers (1.0s–4.0s). 1.5s works well for standard users; 3.0s for stronger focus training.</p>
                 </div>
                 <div class="settings-group accessibility-divider" style="margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 15px;">
                     <h4 style="color: var(--green); margin-bottom: 10px; font-size: 1.05rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">♿ Rehabilitation & Accessibility</h4>
@@ -167,6 +192,74 @@
                         <option value="zh-CN">Mandarin / 普通話 (Standard Chinese)</option>
                     </select>
                     <p class="settings-hint">Select the language used for instructions and verbal praise. (選擇校準及遊戲時的語音提示語言)</p>
+                </div>
+
+                <!-- ── Game Duration ────────────────────────── -->
+                <div class="settings-group accessibility-divider" style="margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 15px;">
+                    <h4 style="color: var(--accent); margin-bottom: 10px; font-size: 1.05rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">⏱ Game Duration</h4>
+                </div>
+                <div class="settings-group">
+                    <label for="roundDurationSlider">Time Attack Duration: <span id="roundDurationLabel">60s</span></label>
+                    <input type="range" id="roundDurationSlider" min="30" max="300" step="10" value="60">
+                    <p class="settings-hint">How long a Time Attack round lasts (30–300 s). Longer rounds are recommended for new or younger users.</p>
+                </div>
+                <div class="settings-group">
+                    <label for="gracePeriodSlider">Grace Period (no penalties): <span id="gracePeriodLabel">5s</span></label>
+                    <input type="range" id="gracePeriodSlider" min="0" max="15" step="1" value="5">
+                    <p class="settings-hint">No lives lost during this window at game start. Gives time to orient gaze before targets count against the player.</p>
+                </div>
+
+                <!-- ── Custom Target Images ─────────────────── -->
+                <div class="settings-group accessibility-divider" style="margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 15px;">
+                    <h4 style="color: var(--accent); margin-bottom: 10px; font-size: 1.05rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">🖼 Custom Target Images</h4>
+                </div>
+                <div class="settings-group">
+                    <label for="targetImageUpload">Upload Images (PNG / JPG / WebP, max 2 MB each, max 10 images)</label>
+                    <input type="file" id="targetImageUpload" accept="image/png,image/jpeg,image/webp" multiple>
+                    <p class="settings-hint">Your photos will replace the default bubble targets. Toggle the checkbox below to switch between default and custom.</p>
+                    <div id="targetImageError" class="settings-error" style="display:none;"></div>
+                    <div id="targetImagePreviews" class="image-preview-list"></div>
+                </div>
+                <div class="settings-group settings-toggles">
+                    <label><input type="checkbox" id="useCustomTargetsCheckbox"> Use custom images as targets</label>
+                    <p class="settings-hint">Falls back to default bubbles if no images have been uploaded.</p>
+                </div>
+
+                <!-- ── Background Music ─────────────────────── -->
+                <div class="settings-group accessibility-divider" style="margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 15px;">
+                    <h4 style="color: var(--accent); margin-bottom: 10px; font-size: 1.05rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">🎵 Background Music</h4>
+                </div>
+                <div class="settings-group">
+                    <label for="bgMusicUpload">Upload Music (MP3, max 20 MB)</label>
+                    <input type="file" id="bgMusicUpload" accept="audio/mpeg">
+                    <div id="bgMusicInfo" class="settings-hint" style="margin-top:0.4rem;min-height:1.2em;"></div>
+                    <div id="bgMusicError" class="settings-error" style="display:none;"></div>
+                </div>
+                <div class="settings-group">
+                    <label for="bgMusicVolumeSlider">Volume: <span id="bgMusicVolumeLabel">70%</span></label>
+                    <input type="range" id="bgMusicVolumeSlider" min="0" max="100" step="5" value="70">
+                </div>
+                <div class="settings-group settings-toggles">
+                    <label><input type="checkbox" id="bgMusicMuteCheckbox"> Mute background music</label>
+                    <label style="margin-top:6px;display:block;"><input type="checkbox" id="bgMusicLoopCheckbox" checked> Loop music</label>
+                </div>
+                <div class="settings-group">
+                    <button id="removeBgMusicBtn" class="secondary-btn" style="font-size:0.9rem;padding:0.5rem 1rem;">🗑 &nbsp;Remove Music</button>
+                </div>
+
+                <!-- ── Calibration Setup Guide ─────────────── -->
+                <div class="settings-group accessibility-divider" style="margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 15px;">
+                    <h4 style="color: var(--accent); margin-bottom: 10px; font-size: 1.05rem; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;">📋 Calibration Guidance</h4>
+                </div>
+                <div class="settings-group settings-toggles">
+                    <label><input type="checkbox" id="showCalibrationGuideCheckbox" checked> Show setup checklist before calibration</label>
+                    <p class="settings-hint">Displays physical alignment tips (eye level, camera distance, lighting) before each calibration session begins.</p>
+                </div>
+
+                <!-- ── Reset ───────────────────────────────── -->
+                <div class="settings-group" style="margin-top: 20px; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 15px;">
+                    <button id="resetSettingsBtn" class="secondary-btn" style="font-size:0.9rem;padding:0.5rem 1rem;">↺ &nbsp;Reset All Settings to Defaults</button>
+                    <p class="settings-hint">Resets tracking, gameplay, and accessibility settings. Does not remove custom images or music.</p>
                 </div>
             </div>
             <div class="settings-preview-area">
@@ -261,6 +354,9 @@
     <div class="reticle-line reticle-line-v"></div>
     <div class="reticle-line reticle-line-v"></div>
 </div>
+
+<!-- Background music audio element (hidden) -->
+<audio id="bgMusic" style="display:none;" preload="none"></audio>
 
 <!-- ── Scripts ──────────────────────────────────────────── -->
 <!--
