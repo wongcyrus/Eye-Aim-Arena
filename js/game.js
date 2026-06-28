@@ -75,6 +75,19 @@ const SURVIVAL_HARD_MAX_TARGETS = 8;
 
 const _imgCache = new Map(); // url → HTMLImageElement
 
+// Extra pixel buffer added to target radius when computing spawn margins so
+// the target circle edge never clips the viewport boundary.
+const SPAWN_EDGE_PADDING = 4; // px
+
+// File size limits for uploads
+const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;  // 2 MB
+const MAX_AUDIO_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+
+/** Format milliseconds as a compact seconds string, e.g. 1500 → "1.5s", 2000 → "2s" */
+function _formatSeconds(ms) {
+    return `${(ms / 1000).toFixed(2).replace(/\.?0+$/, '')}s`;
+}
+
 function _getCachedImage(url) {
     if (_imgCache.has(url)) return _imgCache.get(url);
     const img = new Image();
@@ -540,8 +553,8 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK, settings = null) 
     // Enforce pixel-safe margin so large targets always stay fully visible
     const screenW = window.innerWidth  || 1280;
     const screenH = window.innerHeight || 720;
-    const pixMarginX = (radius + 4) / screenW;
-    const pixMarginY = (radius + 4) / screenH;
+    const pixMarginX = (radius + SPAWN_EDGE_PADDING) / screenW;
+    const pixMarginY = (radius + SPAWN_EDGE_PADDING) / screenH;
     const safeMarginX = Math.max(margin, pixMarginX);
     const safeMarginY = Math.max(margin, pixMarginY);
 
@@ -2505,7 +2518,7 @@ class Game {
         const dwellLabel  = document.getElementById('dwellTimeLabel');
         const customDwellGroup = document.getElementById('customDwellGroup');
         if (dwellSlider) dwellSlider.value = this.settings.gazeDwellMs || 2000;
-        if (dwellLabel) dwellLabel.textContent = `${((this.settings.gazeDwellMs || 2000) / 1000).toFixed(2).replace(/\.?0+$/, '')}s`;
+        if (dwellLabel) dwellLabel.textContent = _formatSeconds(this.settings.gazeDwellMs || 2000);
         if (customDwellGroup) customDwellGroup.style.display = (this.settings.triggerMode === 'dwell_custom') ? '' : 'none';
 
         // Round duration + grace period sliders
@@ -2897,7 +2910,7 @@ class Game {
         // Live label updates for range sliders
         document.getElementById('gazeDwellSlider')?.addEventListener('input', (e) => {
             const label = document.getElementById('dwellTimeLabel');
-            if (label) label.textContent = `${(parseInt(e.target.value) / 1000).toFixed(2).replace(/\.?0+$/, '')}s`;
+            if (label) label.textContent = _formatSeconds(parseInt(e.target.value));
         });
         document.getElementById('roundDurationSlider')?.addEventListener('input', (e) => {
             const label = document.getElementById('roundDurationLabel');
@@ -2920,7 +2933,7 @@ class Game {
             if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
             const files = Array.from(e.target.files || []);
             const MAX_IMAGES = 10;
-            const MAX_SIZE   = 2 * 1024 * 1024; // 2 MB
+            const MAX_SIZE   = MAX_IMAGE_SIZE_BYTES;
             const ALLOWED    = ['image/png', 'image/jpeg', 'image/webp'];
 
             if (this._customImages.length + files.length > MAX_IMAGES) {
@@ -2970,7 +2983,7 @@ class Game {
                 e.target.value = '';
                 return;
             }
-            const MAX_AUDIO = 20 * 1024 * 1024; // 20 MB
+            const MAX_AUDIO = MAX_AUDIO_SIZE_BYTES;
             if (file.size > MAX_AUDIO) {
                 if (errorEl) { errorEl.style.display = ''; errorEl.textContent = 'File exceeds the 20 MB limit.'; }
                 e.target.value = '';
@@ -3095,7 +3108,7 @@ class Game {
                 URL.revokeObjectURL(img.url);
                 _imgCache.delete(img.url);
                 // Remove from DB
-                if (this._assetStore.db && img.id != null) {
+                if (this._assetStore.db && img.id !== null && img.id !== undefined) {
                     await this._assetStore.deleteImage(img.id).catch(() => {});
                 }
                 // Remove from array
