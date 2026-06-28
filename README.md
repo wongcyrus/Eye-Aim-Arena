@@ -53,10 +53,71 @@ VERBAL praise and vocal feedback are critical for motivating children during the
   - Explicitly penalizes robotic male fallback voices to guarantee a warm, comforting pediatric experience.
 
 ### 🛡️ Motor Control Accessibility Settings
-- **Safe Area Margin**: Shrinks the target spawning boundary (up to 20% inset). Useful for children who cannot comfortably scan the extreme outer corners of the screen.
+- **Safe Area Margin**: Shrinks the target spawning boundary (up to 38% inset). Useful for children who cannot comfortably scan the extreme outer corners of the screen.
 - **Gaze Smoothing (Normal / High / Heavy)**: Filters out rapid spastic eye or neck micro-movements using a customizable Exponential Moving Average (EMA).
-- **Target Scale (0.8x to 2.0x)**: Magnifies targets to make them easier to hit.
+- **Target Scale (1.0x to 2.5x)**: Magnifies targets and their hitboxes to make them easier to aim at. Large targets automatically clamp spawn positions so they remain fully visible on screen.
 - **Aim Assist**: Magnetic pull-to-target assist helps stabilize gaze.
+
+---
+
+## 🆕 New Personalization & Accessibility Features
+
+### 📋 Pre-Calibration Setup Guidance
+Before each calibration session begins, an optional setup checklist modal appears with clear physical alignment instructions:
+- **Eye level**: Keep eyes approximately horizontal with the camera lens.
+- **Distance**: Sit 40–70 cm (16–28 in) from the camera for best tracking accuracy.
+- **Face centering**: Keep face centered in the camera frame.
+- **Lighting**: Use even, front-facing light; avoid strong backlights.
+- **Head stability**: Keep head as still as possible during calibration.
+
+Toggle this modal on/off in **Settings → Calibration Guidance**.
+
+---
+
+### ⏱ Configurable Gaze Dwell Time
+Shooting Mode now includes a **Custom Dwell Trigger** option:
+- Select **Dwell Trigger (Custom Duration)** in the Shooting Mode setting.
+- A slider appears allowing values from **1.0 s to 4.0 s** in 0.25 s increments.
+- 1.5 s suits standard users; 3.0 s is recommended for users who need more deliberate focus control.
+- The custom value persists across page reloads.
+
+Preset modes remain available: 0.5 s (Easy), 1.0 s (Recommended), 1.5 s (Steady Focus).
+
+---
+
+### ⏳ Configurable Round Timer & Grace Period
+
+| Setting | Range | Default | Description |
+|---------|-------|---------|-------------|
+| **Time Attack Duration** | 30–300 s | 60 s | How long a Time Attack round lasts. |
+| **Grace Period** | 0–15 s | 5 s | Window at game start during which no lives are lost. |
+
+Adjust both sliders in **Settings → Game Duration**. The HUD timer shows a `⏳ Grace: Ns` countdown during the grace window.
+
+---
+
+### 🖼 Custom Target Images
+Replace the default bubbles with your own photos:
+1. Open **Settings → Custom Target Images**.
+2. Click **Upload Images** and select PNG, JPG, or WebP files (max 2 MB each, max 10 images).
+3. Thumbnails appear in the settings panel. Click the **✕** button to remove any image.
+4. Enable **Use custom images as targets** to switch from default bubbles.
+5. Images are stored in the browser's **IndexedDB** and persist across reloads.
+6. Falls back to default bubble targets if no images have been uploaded.
+
+**Supported formats:** PNG, JPEG, WebP.
+
+---
+
+### 🎵 Custom Background Music
+Upload your own MP3 as background music:
+1. Open **Settings → Background Music**.
+2. Click **Upload Music** and select an MP3 file (max 20 MB).
+3. Adjust **Volume** (0–100 %), toggle **Mute**, and toggle **Loop**.
+4. Music starts automatically when a game mode is launched (respecting browser autoplay policy — music begins on user interaction).
+5. Music pauses when the game is paused and resumes when resumed.
+6. The audio file is stored in **IndexedDB** for persistence. Remove it with the **🗑 Remove Music** button.
+7. Volume, mute, and loop preferences are saved to `localStorage`.
 
 ---
 
@@ -65,8 +126,8 @@ VERBAL praise and vocal feedback are critical for motivating children during the
 | Mode | Target Limit / Timer | Mechanics & Intent |
 |------|-------------|--------------------|
 | **Zen Practice** | Unlimited | **No timer, no lives, no stress.** Designed for pure neck and eye exercise. Celebrates milestones every 5 hits. |
-| **Time Attack** | 60 seconds | Hit as many targets as possible before time runs out. |
-| **Survival** | 5 Lives | Fast-paced. Targets move quicker and escape; lose a life if a target escapes. |
+| **Time Attack** | Configurable (default 60 s) | Hit as many targets as possible before time runs out. Duration adjustable in Settings. |
+| **Survival** | 5 Lives | Fast-paced. Targets move quicker and escape; lose a life if a target escapes (grace period available). |
 | **Precision** | 20 Rounds | Targets shrink; scores are heavily weighted by gaze centering and accuracy. |
 
 ---
@@ -75,10 +136,17 @@ VERBAL praise and vocal feedback are critical for motivating children during the
 
 Access the **⚙️ Settings** panel on the main menu to customize the tracking and accessibility profile:
 
-- **Tracking Mode**: Toggle between high-performance **MediaPipe Face Landmarker** (rebuilds a 3D face mesh using Google's modern engine) and **WebGazer.js** (purely client-side regression analysis).
-- **Camera Device**: Live camera preview and interactive selection box (ideal if multiple USB cameras are hooked up).
-- **Invert Coordinates**: Swap X or Y tracking vectors if the patient's tracker sits at an offset or mirror angle.
-- **Voice Guidance**: Checkbox to toggle audio narration during calibration prompts (e.g., "Look at the top-left star") and milestone praise.
+- **Tracking Mode**: Toggle between high-performance **MediaPipe Face Landmarker** and **WebGazer.js**.
+- **Camera Device**: Live camera preview and interactive selection box.
+- **Shooting Mode**: Blink, Auto-Shoot, Dwell Trigger presets, or **Custom Dwell** (1.0–4.0 s).
+- **Invert Coordinates**: Swap X or Y tracking vectors if the tracker sits at an offset.
+- **Voice Guidance**: Toggle audio narration during calibration and milestone praise.
+- **Time Attack Duration**: Set round length (30–300 s).
+- **Grace Period**: Delay before health/lives penalties begin (0–15 s).
+- **Custom Target Images**: Upload PNG/JPG/WebP photos as targets.
+- **Background Music**: Upload MP3 with volume/mute/loop controls.
+- **Calibration Guide**: Toggle the setup checklist shown before calibration.
+- **Reset to Defaults**: Restore all settings to recommended values (images and music are preserved).
 
 ---
 
