@@ -2807,40 +2807,74 @@ class Game {
     }
 
     async _openCamera(deviceId = '') {
-        const constraints = {
-            video: deviceId
-                ? {
-                    width: { ideal: 640 },
-                    height: { ideal: 480 },
-                    deviceId: { exact: deviceId },
-                }
-                : {
-                    width: { ideal: 640 },
-                    height: { ideal: 480 },
-                    facingMode: 'user',
-                },
-            audio: false,
+        const baseVideoConstraints = {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+        };
+        const permissionErrors = new Set(['NotAllowedError', 'SecurityError']);
+
+        const openWithConstraints = async (videoConstraints) => {
+            const getUserMedia = navigator.mediaDevices._originalGetUserMedia
+                ? navigator.mediaDevices._originalGetUserMedia.bind(navigator.mediaDevices)
+                : navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+            const stream = await getUserMedia({ video: videoConstraints, audio: false });
+            const oldStream = this.video.srcObject;
+            if (oldStream && oldStream !== stream) {
+                for (const t of oldStream.getTracks()) t.stop();
+            }
+
+            this.video.srcObject = stream;
+            await new Promise((res, rej) => {
+                this.video.onloadeddata = res;
+                this.video.onerror = rej;
+                this.video.play();
+            });
+
+            const [track] = stream.getVideoTracks();
+            const activeId = track?.getSettings?.().deviceId || '';
+            this.currentCameraDeviceId = activeId;
+            this.settings.cameraDeviceId = activeId;
+            this._saveSettings();
+            return true;
         };
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        const oldStream = this.video.srcObject;
-        if (oldStream && oldStream !== stream) {
-            for (const t of oldStream.getTracks()) t.stop();
-        }
-
-        this.video.srcObject = stream;
-        await new Promise((res, rej) => {
-            this.video.onloadeddata = res;
-            this.video.onerror = rej;
-            this.video.play();
+        const tryByDeviceId = async (candidateId) => openWithConstraints({
+            ...baseVideoConstraints,
+            deviceId: { exact: candidateId },
         });
 
-        const [track] = stream.getVideoTracks();
-        // deviceId may be unavailable on older browsers/privacy-restricted contexts.
-        const activeId = track?.getSettings?.().deviceId || deviceId || '';
-        this.currentCameraDeviceId = activeId;
-        this.settings.cameraDeviceId = activeId;
-        this._saveSettings();
+        try {
+            if (deviceId) {
+                await tryByDeviceId(deviceId);
+            } else {
+                await openWithConstraints({
+                    ...baseVideoConstraints,
+                    facingMode: 'user',
+                });
+            }
+            return;
+        } catch (primaryErr) {
+            if (permissionErrors.has(primaryErr?.name)) throw primaryErr;
+        }
+
+        await this._refreshCameraList().catch(() => {});
+        const preferredId = deviceId || this.settings.cameraDeviceId || this.currentCameraDeviceId || '';
+        const fallbackCameras = this.availableCameras
+            .map(c => c.deviceId)
+            .filter(id => id && id !== preferredId);
+
+        let lastErr = null;
+        for (const candidateId of fallbackCameras) {
+            try {
+                await tryByDeviceId(candidateId);
+                return;
+            } catch (err) {
+                if (permissionErrors.has(err?.name)) throw err;
+                lastErr = err;
+            }
+        }
+
+        throw (lastErr || new Error('Unable to open any camera device.'));
     }
 
     async _refreshCameraList() {
