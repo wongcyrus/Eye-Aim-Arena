@@ -815,6 +815,7 @@ html, body {
 #pauseScreen,
 #hud,
 #cameraPreview,
+#aiAssistantPanel,
 #healthBar,
 #keyboardHint,
 #menuGazeReticle,
@@ -985,3 +986,133 @@ input[type="file"]::-webkit-file-upload-button {
     color: var(--red);
 }
 
+/* ── AI Assistant Panel (Aria) ───────────────── */
+.ai-panel {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    width: 250px;
+    background: rgba(10, 15, 26, 0.75);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 229, 255, 0.25);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 0 0 25px rgba(0, 229, 255, 0.15), inset 0 0 8px rgba(0, 229, 255, 0.05);
+    z-index: 6;
+    pointer-events: none;
+    font-family: inherit;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.ai-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+}
+
+.ai-avatar-container {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ai-avatar-core {
+    width: 10px;
+    height: 10px;
+    background: #00e5ff;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #00e5ff, 0 0 15px #00e5ff;
+    animation: aiPulse 1.8s infinite ease-in-out;
+}
+
+.ai-avatar-ring {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border: 1.5px solid rgba(0, 229, 255, 0.4);
+    border-radius: 50%;
+    animation: aiRotate 4s infinite linear;
+}
+
+.ai-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #00e5ff;
+    text-shadow: 0 0 5px rgba(0, 229, 255, 0.3);
+    letter-spacing: 0.5px;
+}
+
+.ai-body {
+    min-height: 48px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+}
+
+#aiMessage {
+    font-size: 0.82rem;
+    line-height: 1.35;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0;
+    font-weight: 500;
+}
+
+.ai-stats {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 6px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ai-stat-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+
+.ai-stat-lbl {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.ai-stat-val {
+    font-size: 0.78rem;
+    color: var(--yellow);
+    font-weight: 700;
+}
+
+/* Animations */
+@keyframes aiPulse {
+    0%, 100% {
+        transform: scale(0.85);
+        box-shadow: 0 0 4px #00e5ff, 0 0 8px #00e5ff;
+        background: #00e5ff;
+    }
+    50% {
+        transform: scale(1.15);
+        box-shadow: 0 0 10px #bf00ff, 0 0 20px #bf00ff;
+        background: #bf00ff;
+    }
+}
+
+@keyframes aiRotate {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

@@ -51,6 +51,40 @@ VERBAL praise and vocal feedback are critical for motivating children during the
   - **Windows / Edge**: Prioritizes `Microsoft Hiuting Online (Natural)` and `Microsoft Tracy Online (Natural)`.
   - **Chrome / Android**: Prioritizes `Google 粵語` (Google Cantonese Female).
   - Explicitly penalizes robotic male fallback voices to guarantee a warm, comforting pediatric experience.
+### 🤖 Aria: AI Adaptive Therapist & Personal Gaze Copilot
+The game features **Aria**, an integrated AI co-pilot designed to act as an adaptive virtual therapist. Aria monitors real-time gaze metrics (e.g., spastic jitter, rolling targets hit/miss ratios) and actively assists the child during gameplay:
+
+- **Dynamic Difficulty Adjustment (DDA)**: 
+  - If a child misses 2 targets in a row, Aria automatically enlarges all targets to **1.6x** size to reduce frustration.
+  - If a child sustains 6 consecutive hits, Aria returns targets to standard size (**1.0x**) to encourage motor skill progression.
+- **Automated Tremor Filter**: If the child's gaze presents high jitter for 4 consecutive seconds, Aria automatically activates the **Heavy Gaze Smoothing** filter, smoothing out neck and eye spasms so they can aim comfortably.
+- **Personalized Dialogue via Chrome Built-in AI (Prompt API)**:
+  - Aria leverages Google Chrome's revolutionary, local **Prompt API (Gemini Nano)** to formulate custom, real-time verbal encouragement during therapy milestones.
+  - **100% Privacy Compliant**: Because Gemini Nano runs entirely on the child's local device, gaze metrics, camera frames, and therapist dialogue prompts never leave the local machine, ensuring absolute compliance with health data privacy rules.
+- **Therapist Persona System Prompt**:
+  - Therapists or parents can customize Aria's virtual therapist persona in the Settings dashboard (e.g., *"Speak to Timmy in a cheerful voice. Mention dinosaurs, and encourage him on his therapy goals."*).
+  - Gemini Nano combines this persona with real-time gameplay scenarios (e.g., target enlargement, tremor filter engagement) to generate completely unique, encouraging spoken words.
+- **Colloquial Multi-Language Generation**: Synthesizes natural, friendly, colloquial sentences tailored specifically to the user's selected language: **Cantonese (廣東話)**, **Mandarin (普通話)**, or **English**.
+- **Robust Rule-Based Fallbacks**: If the Prompt API is unsupported, disabled, or encounters a loading delay, Aria instantly and seamlessly falls back to high-quality, pre-loaded localized template dialogue, ensuring **zero lag or frame-rate drops** in the 60 FPS eye-tracking loop.
+
+#### 🔧 How to Enable Chrome Built-In AI (Gemini Nano)
+To unlock Aria's real-time localized dialogue generation:
+1. Download **Chrome Dev** or **Chrome Canary** (version 150 or higher is highly recommended, as the Prompt API has graduated to built-in stable status).
+    > [!IMPORTANT]
+    > **Chrome Stable is NOT Supported**: The Stable version of Chrome does NOT support the experimental Prompt API (`window.ai`) by default, even if flags are enabled. You **MUST** use Chrome Dev or Chrome Canary to run and prototype with the local Gemini Nano model.
+2. Enable Built-In AI on your browser:
+   * **Chrome 150 & 151+ (Newer)**: The old `#optimization-guide-on-device-model` flag is **graduated and removed**! Instead, navigate directly to **`chrome://settings/ai`** (or browser **Settings** > **Google AI** / **System** > **On-device AI**) and make sure the **On-device AI** toggle is set to **Enabled**.
+   * **Chrome Flags (Developer Configuration)**: Enter `chrome://flags` in your address bar and configure:
+     - Set `#prompt-api-for-gemini-nano` to **`Enabled Multilingual`** (this is critical to enable Gemini Nano's native support for our multi-language goals, including Cantonese and Mandarin!).
+     - Set `#prompt-api-multimodal-input` to `Enabled` (Optional, extends the Prompt API to accept image and audio input).
+3. Relaunch your Chrome browser.
+4. Verify Model Download and Debugging:
+   * Go to `chrome://components` and check the status of **Optimization Guide On Device Model**. Ensure it is fully updated and downloaded.
+   * If you wish to inspect download progress or local logs under `chrome://on-device-internals` and receive a message saying **"Internal debugging pages are currently disabled"**:
+     1. Navigate to **`chrome://chrome-urls`**.
+     2. Click the **Enable debug pages** button at the top of the page.
+     3. Navigate to **`chrome://on-device-internals`** again to monitor the model download.
+5. Launch the game over secure HTTPS, open the **⚙️ Settings** dashboard, and observe the live capability status badge (`🟢 Built-in AI Active & Ready!` vs `❌ Not Supported`).
 
 ### 🛡️ Motor Control Accessibility Settings
 - **Safe Area Margin**: Shrinks the target spawning boundary (up to 38% inset). Useful for children who cannot comfortably scan the extreme outer corners of the screen.

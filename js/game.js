@@ -524,6 +524,9 @@ function createTarget(difficulty = 1, mode = MODE.TIME_ATTACK, settings = null) 
     if (settings && settings.targetScale !== undefined) {
         targetScale = parseFloat(settings.targetScale);
     }
+    if (window.game && window.game.settings && window.game.settings.aiCoach) {
+        targetScale *= (window.game.aiActiveTargetScale ?? 1.0);
+    }
     radius = Math.round(radius * targetScale);
 
     lifetime = Math.max(
@@ -929,6 +932,9 @@ class Game {
     _updateGame(timestamp, dt) {
         const elapsed = timestamp - this.startTime;
 
+        // Run AI Therapist and Gaze Copilot processing
+        this._processAICoach(timestamp, dt);
+
         // ---- Difficulty ramp ----
         if (this.mode === MODE.TIME_ATTACK) {
             this.difficulty = 1 + elapsed / 20_000;
@@ -985,6 +991,8 @@ class Game {
                     const pts = t.registerHit(this.gazeX, this.gazeY, W, H, assistBuffer);
                     this.score += pts;
                     this.hits++;
+                    this.consecutiveHits++;
+                    this.consecutiveMisses = 0;
                     if (this.mode === MODE.PRECISION) this.precisionRounds++;
                     this._checkZenMilestones();
 
@@ -1036,6 +1044,8 @@ class Game {
                         const pts = hoveredTarget.registerHit(this.gazeX, this.gazeY, W, H, assistBuffer);
                         this.score += pts;
                         this.hits++;
+                        this.consecutiveHits++;
+                        this.consecutiveMisses = 0;
                         if (this.mode === MODE.PRECISION) this.precisionRounds++;
                         this._checkZenMilestones();
 
@@ -1081,6 +1091,11 @@ class Game {
             return true;
         });
 
+        if (missedCount > 0) {
+            this.consecutiveMisses += missedCount;
+            this.consecutiveHits = 0;
+        }
+
         // Survival lives penalty for missed targets (skipped during grace period)
         const gracePeriodMs = (this.settings.gracePeriodSec || 0) * 1000;
         const inGracePeriod = elapsed < gracePeriodMs;
@@ -1109,6 +1124,195 @@ class Game {
         this._reticlePulse += dt * 0.004;
     }
 
+    _processAICoach(timestamp, dt) {
+        if (!this.settings.aiCoach) return;
+
+        const lang = this.settings.voiceLanguage || 'zh-HK';
+
+        // 1. Calculate running Jitter Index over a sliding window of 60 frames (~1 sec)
+        if (!this.aiGazeJitterHistory) this.aiGazeJitterHistory = [];
+        
+        const dx = this.gazeX - (this._lastGazeX ?? this.gazeX);
+        const dy = this.gazeY - (this._lastGazeY ?? this.gazeY);
+        this._lastGazeX = this.gazeX;
+        this._lastGazeY = this.gazeY;
+        const dist = Math.hypot(dx, dy);
+
+        // Avoid pushing huge jumps during transitions or screen loading
+        if (dist < 0.3) {
+            this.aiGazeJitterHistory.push(dist);
+            if (this.aiGazeJitterHistory.length > 60) {
+                this.aiGazeJitterHistory.shift();
+            }
+        }
+
+        const avgJitter = this.aiGazeJitterHistory.length > 10
+            ? this.aiGazeJitterHistory.reduce((sum, d) => sum + d, 0) / this.aiGazeJitterHistory.length
+            : 0;
+
+        // 2. Classify Focus Status based on Jitter
+        let gazeStateText = '';
+        let focusStatus = 'Normal';
+        
+        if (avgJitter > 0.015) {
+            focusStatus = 'Jittery';
+            this.aiGazeJitteryCount += dt;
+            this.aiGazeStableCount = 0;
+        } else if (avgJitter < 0.006 && avgJitter > 0) {
+            focusStatus = 'Stable';
+            this.aiGazeStableCount += dt;
+            this.aiGazeJitteryCount = 0;
+        } else {
+            focusStatus = 'Normal';
+        }
+
+        // Apply localization to Gaze State label
+        if (lang === 'zh-HK') {
+            if (this.settings.gazeSmoothing === 'heavy') {
+                gazeStateText = '防手震濾鏡 (已啟動)';
+            } else if (focusStatus === 'Jittery') {
+                gazeStateText = '輕微震顫';
+            } else if (focusStatus === 'Stable') {
+                gazeStateText = '極度專注';
+            } else {
+                gazeStateText = '正常追蹤';
+            }
+        } else if (lang === 'zh-CN') {
+            if (this.settings.gazeSmoothing === 'heavy') {
+                gazeStateText = '防手震滤镜 (已启动)';
+            } else if (focusStatus === 'Jittery') {
+                gazeStateText = '轻微震颤';
+            } else if (focusStatus === 'Stable') {
+                gazeStateText = '极度专注';
+            } else {
+                gazeStateText = '正常追踪';
+            }
+        } else {
+            if (this.settings.gazeSmoothing === 'heavy') {
+                gazeStateText = 'Tremor Filter (Active)';
+            } else if (focusStatus === 'Jittery') {
+                gazeStateText = 'Tremoring';
+            } else if (focusStatus === 'Stable') {
+                gazeStateText = 'Perfect Focus';
+            } else {
+                gazeStateText = 'Normal';
+            }
+        }
+
+        const gazeFocusEl = document.getElementById('aiFocus');
+        if (gazeFocusEl) {
+            gazeFocusEl.textContent = gazeStateText;
+            if (this.settings.gazeSmoothing === 'heavy') {
+                gazeFocusEl.style.color = '#bf00ff'; // neon purple
+            } else if (focusStatus === 'Stable') {
+                gazeFocusEl.style.color = '#00e5ff'; // neon cyan
+            } else if (focusStatus === 'Jittery') {
+                gazeFocusEl.style.color = '#ff6b6b'; // soft coral/red
+            } else {
+                gazeFocusEl.style.color = 'var(--yellow)';
+            }
+        }
+
+        // 3. Adaptive Therapist Coaching Decisions (throttled to avoid speaking too rapidly)
+        const now = performance.now();
+        const interventionCooldown = 15000; // 15 seconds between speeches
+
+        // GREETING RULE (At the very beginning of the gameplay session)
+        if (!this.aiGreetingSpoken && now - this.startTime > 1200) {
+            this.aiGreetingSpoken = true;
+            this.lastAiInterventionTime = now;
+            
+            let msg = '';
+            if (lang === 'zh-HK') {
+                msg = "我係 Aria，你嘅 AI 治療夥伴！一齊加油練習！";
+            } else if (lang === 'zh-CN') {
+                msg = "我是 Aria，您的 AI 治疗伙伴！一起加油练习！";
+            } else {
+                msg = "I am Aria, your AI Therapist companion! Let's practice together!";
+            }
+            this._triggerAiTherapistPrompt(this._getLocalizedAiPromptContext('greeting'), msg);
+        }
+
+        // HEAVY TREMOR DETECTED RULE
+        // If the child is having high jitter for 4 consecutive seconds and is NOT already using Heavy smoothing
+        if (this.settings.gazeSmoothing !== 'heavy' && this.aiGazeJitteryCount > 4000 && (now - this.lastAiInterventionTime > interventionCooldown)) {
+            this.aiGazeJitteryCount = 0;
+            this.lastAiInterventionTime = now;
+
+            // Dynamically apply heavy smoothing (tremor filter) to help the child target stably!
+            this.settings.gazeSmoothing = 'heavy';
+            this._updateGazeAlpha();
+
+            let msg = '';
+            if (lang === 'zh-HK') {
+                msg = "我偵測到少許晃動，已為你自動啟動「重度防手震濾鏡」幫你對準！";
+            } else if (lang === 'zh-CN') {
+                msg = "我检测到少许晃动，已为您自动启动「重度防手震滤镜」帮您对准！";
+            } else {
+                msg = "I detected some tracking tremors. I've automatically activated the Heavy Tremor Filter to stabilize your gaze!";
+            }
+            this._triggerAiTherapistPrompt(this._getLocalizedAiPromptContext('tremor'), msg);
+        }
+
+        // STRUGGLING RULE (Dynamic Difficulty Adjustment)
+        // If they miss 2 targets in a row and target scale is not yet enlarged
+        if (this.consecutiveMisses >= 2 && this.aiActiveTargetScale === 1.0 && (now - this.lastAiInterventionTime > interventionCooldown)) {
+            this.lastAiInterventionTime = now;
+            this.aiActiveTargetScale = 1.6; // Scale targets up to 1.6x!
+
+            let msg = '';
+            if (lang === 'zh-HK') {
+                msg = "唔使急，我將目標變大咗 1.6 倍，等你可以更容易望中佢！";
+            } else if (lang === 'zh-CN') {
+                msg = "别着急，我把目标变大了 1.6 倍，让您可以更容易看中它！";
+            } else {
+                msg = "Don't worry, take your time! I've enlarged the targets to 1.6x size to make them easier to target!";
+            }
+            this._triggerAiTherapistPrompt(this._getLocalizedAiPromptContext('struggling'), msg);
+        }
+
+        // GREAT FOCUS / SUCCESS RULE (Adaptive challenge)
+        // If they get 6 hits in a row and target scale is currently enlarged, let's return to normal size
+        if (this.consecutiveHits >= 6 && this.aiActiveTargetScale > 1.0 && (now - this.lastAiInterventionTime > interventionCooldown)) {
+            this.lastAiInterventionTime = now;
+            this.aiActiveTargetScale = 1.0; // Return to standard scale
+
+            let msg = '';
+            if (lang === 'zh-HK') {
+                msg = "好犀利呀！你對眼好專注，我將目標變返正常大細，再試吓！";
+            } else if (lang === 'zh-CN') {
+                msg = "太棒了！您的眼睛非常专注，我把目标变回正常大小，再试试！";
+            } else {
+                msg = "Amazing focus! You are doing so well that I've set the targets back to standard size. Keep it up!";
+            }
+            this._triggerAiTherapistPrompt(this._getLocalizedAiPromptContext('success'), msg);
+        }
+
+        // Update adaptive scale text in UI
+        const diffValEl = document.getElementById('aiDifficulty');
+        if (diffValEl) {
+            let scaleText = `${this.aiActiveTargetScale.toFixed(1)}x`;
+            if (this.aiActiveTargetScale > 1.0) {
+                if (lang === 'zh-HK') scaleText = `加大 ${this.aiActiveTargetScale.toFixed(1)}x`;
+                else if (lang === 'zh-CN') scaleText = `加大 ${this.aiActiveTargetScale.toFixed(1)}x`;
+                else scaleText = `Enlarged (${this.aiActiveTargetScale.toFixed(1)}x)`;
+            } else {
+                if (lang === 'zh-HK') scaleText = `標準 1.0x`;
+                else if (lang === 'zh-CN') scaleText = `标准 1.0x`;
+                else scaleText = `Standard (1.0x)`;
+            }
+            diffValEl.textContent = scaleText;
+            diffValEl.style.color = this.aiActiveTargetScale > 1.0 ? '#ffb347' : 'var(--yellow)';
+        }
+    }
+
+    _updateAiSubtitle(text) {
+        const msgEl = document.getElementById('aiMessage');
+        if (msgEl) {
+            msgEl.textContent = text;
+        }
+    }
+
     // ── Shooting ──────────────────────────────────────────────────
 
     _shoot() {
@@ -1127,6 +1331,8 @@ class Game {
                 const pts = t.registerHit(this.gazeX, this.gazeY, W, H, assistBuffer);
                 this.score += pts;
                 this.hits++;
+                this.consecutiveHits++;
+                this.consecutiveMisses = 0;
                 this._checkZenMilestones();
                 hit = true;
 
@@ -1619,6 +1825,35 @@ class Game {
         this.gameDuration = (this.settings.roundDurationSec || 60) * 1000;
         this.startTime   = performance.now();
 
+        // Initialize AI Adaptive Therapist variables
+        this.consecutiveHits = 0;
+        this.consecutiveMisses = 0;
+        this.aiActiveTargetScale = 1.0;
+        this.lastAiInterventionTime = 0;
+        this.aiGazeStableCount = 0;
+        this.aiGazeJitteryCount = 0;
+        this.aiGazeJitterHistory = [];
+        this.aiGreetingSpoken = false;
+
+        // Re-initialize Built-in AI session if enabled
+        this.aiPromptSession = null;
+        if (this.settings.aiCoach) {
+            this._initAiPromptSession();
+        }
+        
+        // Reset subtitle to default loading message
+        const aiMsgEl = document.getElementById('aiMessage');
+        if (aiMsgEl) {
+            const lang = this.settings.voiceLanguage || 'zh-HK';
+            if (lang === 'zh-HK') {
+                aiMsgEl.textContent = "準備好幫你練習！用你嘅雙眼跟住目標。";
+            } else if (lang === 'zh-CN') {
+                aiMsgEl.textContent = "准备好帮您练习！用您的双眼跟着目标。";
+            } else {
+                aiMsgEl.textContent = "Ready to help you practice! Follow the targets with your eyes.";
+            }
+        }
+
         this._hideAllScreens();
         this._showHUD(mode);
         this._updateHUD();
@@ -1685,6 +1920,11 @@ class Game {
         if (mode === MODE.PRECISION) timerEl.textContent = `Round: 0/${this.precisionTotal}`;
 
         document.getElementById('keyboardHint').style.display = 'block';
+
+        const aiPanel = document.getElementById('aiAssistantPanel');
+        if (aiPanel) {
+            aiPanel.style.display = this.settings.aiCoach ? 'block' : 'none';
+        }
     }
 
     _hideHUD() {
@@ -1692,6 +1932,11 @@ class Game {
         document.getElementById('healthBar').style.display = 'none';
         document.getElementById('keyboardHint').style.display = 'none';
         this._setCameraPreviewVisible(false);
+
+        const aiPanel = document.getElementById('aiAssistantPanel');
+        if (aiPanel) {
+            aiPanel.style.display = 'none';
+        }
     }
 
     _updateHUD() {
@@ -1988,7 +2233,6 @@ class Game {
             voiceGuidance: true,
             voiceLanguage: 'zh-HK',
             calibrationPoints: '9',
-            // New settings
             gazeDwellMs: 2000,
             roundDurationSec: 60,
             gracePeriodSec: 5,
@@ -1997,6 +2241,8 @@ class Game {
             audioVolume: 0.7,
             audioLoop: true,
             audioMuted: false,
+            aiCoach: true,
+            aiSystemPrompt: "You are Aria, a friendly pediatric therapist. Speak in a warm, encouraging voice. Use short, simple sentences.",
         };
     }
 
@@ -2021,7 +2267,6 @@ class Game {
                 voiceGuidance: parsed.voiceGuidance !== undefined ? Boolean(parsed.voiceGuidance) : defaults.voiceGuidance,
                 voiceLanguage: ['en', 'zh-HK', 'zh-CN'].includes(parsed.voiceLanguage) ? parsed.voiceLanguage : defaults.voiceLanguage,
                 calibrationPoints: ['9', '5', '3'].includes(parsed.calibrationPoints) ? parsed.calibrationPoints : defaults.calibrationPoints,
-                // New settings
                 gazeDwellMs: (typeof parsed.gazeDwellMs === 'number') ? Math.min(4000, Math.max(1000, parsed.gazeDwellMs)) : defaults.gazeDwellMs,
                 roundDurationSec: (typeof parsed.roundDurationSec === 'number') ? Math.min(300, Math.max(30, parsed.roundDurationSec)) : defaults.roundDurationSec,
                 gracePeriodSec: (typeof parsed.gracePeriodSec === 'number') ? Math.min(15, Math.max(0, parsed.gracePeriodSec)) : defaults.gracePeriodSec,
@@ -2030,6 +2275,8 @@ class Game {
                 audioVolume: (typeof parsed.audioVolume === 'number') ? Math.min(1, Math.max(0, parsed.audioVolume)) : defaults.audioVolume,
                 audioLoop: parsed.audioLoop !== undefined ? Boolean(parsed.audioLoop) : defaults.audioLoop,
                 audioMuted: parsed.audioMuted !== undefined ? Boolean(parsed.audioMuted) : defaults.audioMuted,
+                aiCoach: parsed.aiCoach !== undefined ? Boolean(parsed.aiCoach) : defaults.aiCoach,
+                aiSystemPrompt: typeof parsed.aiSystemPrompt === 'string' ? parsed.aiSystemPrompt : defaults.aiSystemPrompt,
             };
         } catch {
             return defaults;
@@ -2385,6 +2632,173 @@ class Game {
         try { localStorage.setItem(LS_SETTINGS, JSON.stringify(this.settings)); } catch { /* ignore */ }
     }
 
+    async _checkPromptApiCapability() {
+        const statusEl = document.getElementById('promptApiStatus');
+        if (!statusEl) return false;
+
+        statusEl.textContent = 'Checking Chrome Built-in AI (Prompt API)...';
+        statusEl.style.color = 'var(--yellow)';
+
+        if (!window.ai) {
+            statusEl.textContent = '❌ Chrome Built-in AI (window.ai) is undefined. Ensure: 1. You are running in a Secure Context (https:// or localhost, NOT file:/// or http:// IP). 2. On-device AI is enabled under chrome://settings/ai (or flags #prompt-api-for-gemini-nano & #optimization-guide-on-device-model are enabled). 3. If still undefined, close Chrome completely and force-launch from terminal/command prompt with: --enable-features=TranslationAPI,PromptAPI,OptimizationGuideOnDeviceModel --ignore-gpu-blocklist';
+            statusEl.style.color = '#ff6b6b';
+            return false;
+        }
+
+        try {
+            // Modern API (Chrome 127+) uses languageModel
+            if (window.ai.languageModel) {
+                const capabilities = await window.ai.languageModel.capabilities();
+                if (capabilities.available === 'no') {
+                    statusEl.textContent = '❌ Gemini Nano (Prompt API) supported, but model is not available or downloads are disabled. Toggle "On-device AI" ON under chrome://settings/ai, or check chrome://on-device-internals (enable debug pages first under chrome://chrome-urls if prompted).';
+                    statusEl.style.color = '#ff6b6b';
+                    return false;
+                } else if (capabilities.available === 'after-download') {
+                    statusEl.textContent = '🟢 Supported (Requires model download. Open Chrome DevTools/Settings to trigger download or check chrome://on-device-internals).';
+                    statusEl.style.color = '#ffb347';
+                    return true;
+                } else if (capabilities.available === 'readily') {
+                    statusEl.textContent = '🟢 Built-in AI Active & Ready!';
+                    statusEl.style.color = '#00ff88';
+                    return true;
+                }
+                statusEl.textContent = `🟢 Supported (Status: ${capabilities.available})`;
+                statusEl.style.color = '#00e5ff';
+                return true;
+            }
+
+            // Older API uses assistant
+            if (window.ai.assistant) {
+                const capabilities = await window.ai.assistant.capabilities();
+                if (capabilities.available === 'no') {
+                    statusEl.textContent = '❌ Built-in AI supported (old API), but model is not available. Please toggle ON under chrome://settings/ai.';
+                    statusEl.style.color = '#ff6b6b';
+                    return false;
+                } else if (capabilities.available === 'after-download') {
+                    statusEl.textContent = '🟢 Supported (Old API, requires model download).';
+                    statusEl.style.color = '#ffb347';
+                    return true;
+                } else if (capabilities.available === 'readily') {
+                    statusEl.textContent = '🟢 Built-in AI Active & Ready! (Old API)';
+                    statusEl.style.color = '#00ff88';
+                    return true;
+                }
+                statusEl.textContent = `🟢 Supported (Old API, Status: ${capabilities.available})`;
+                statusEl.style.color = '#00e5ff';
+                return true;
+            }
+
+            statusEl.textContent = '❌ window.ai exists, but languageModel and assistant APIs are undefined.';
+            statusEl.style.color = '#ff6b6b';
+            return false;
+        } catch (err) {
+            statusEl.textContent = `❌ Error checking Prompt API: ${err.message}`;
+            statusEl.style.color = '#ff6b6b';
+            return false;
+        }
+    }
+
+    async _initAiPromptSession() {
+        this.aiPromptSession = null;
+        if (!window.ai) {
+            console.log("window.ai is not supported in this browser. Skipping Prompt API session initialization.");
+            return;
+        }
+
+        try {
+            const sysPrompt = this.settings.aiSystemPrompt || "You are Aria, a friendly pediatric therapist. Speak in a warm, encouraging voice. Use short, simple sentences.";
+            if (window.ai.languageModel) {
+                const capabilities = await window.ai.languageModel.capabilities();
+                if (capabilities.available !== 'no') {
+                    this.aiPromptSession = await window.ai.languageModel.create({
+                        systemPrompt: sysPrompt
+                    });
+                    console.log("Successfully initialized Gemini Nano session via languageModel with system prompt:", sysPrompt);
+                }
+            } else if (window.ai.assistant) {
+                const capabilities = await window.ai.assistant.capabilities();
+                if (capabilities.available !== 'no') {
+                    this.aiPromptSession = await window.ai.assistant.create({
+                        systemPrompt: sysPrompt
+                    });
+                    console.log("Successfully initialized Gemini Nano session via assistant with system prompt:", sysPrompt);
+                }
+            }
+        } catch (err) {
+            console.warn("Failed to create Built-in AI session:", err);
+            this.aiPromptSession = null;
+        }
+    }
+
+    async _triggerAiTherapistPrompt(userPrompt, fallbackMsg) {
+        if (!this.aiPromptSession) {
+            // No local LLM, speak fallback message
+            this._speak(fallbackMsg);
+            this._updateAiSubtitle(fallbackMsg);
+            return;
+        }
+
+        // Show a visual "thinking..." indicator in the subtitle box
+        const lang = this.settings.voiceLanguage || 'zh-HK';
+        let thinkingMsg = "...";
+        if (lang === 'zh-HK') thinkingMsg = "Aria 思考中...";
+        else if (lang === 'zh-CN') thinkingMsg = "Aria 思考中...";
+        else thinkingMsg = "Aria is thinking...";
+
+        this._updateAiSubtitle(thinkingMsg);
+
+        try {
+            console.log("Prompting Built-in AI with user prompt:", userPrompt);
+            let response = await this.aiPromptSession.prompt(userPrompt);
+            response = response.trim();
+            
+            // Clean up any markdown, quotes, backticks or weird prefixes that LLMs sometimes generate
+            response = response.replace(/^["'`]+|["'`]+$/g, ''); // strip leading/trailing quotes
+            response = response.replace(/^\*|\*$/g, ''); // strip single asterisks
+            response = response.replace(/^Aria:\s*/i, ''); // strip "Aria: " prefix
+            response = response.replace(/^(Sure|Of course|Here is a|Okay)[^:]*:\s*/i, ''); // strip LLM pleasantries
+
+            if (!response) {
+                throw new Error("Empty response received from local LLM");
+            }
+
+            console.log("Built-in AI Response:", response);
+            this._speak(response);
+            this._updateAiSubtitle(response);
+        } catch (err) {
+            console.warn("Error running local LLM prompt, falling back to rule-based speech:", err);
+            // Fallback to our robust rule-based message
+            this._speak(fallbackMsg);
+            this._updateAiSubtitle(fallbackMsg);
+        }
+    }
+
+    _getLocalizedAiPromptContext(scenarioKey) {
+        const lang = this.settings.voiceLanguage || 'zh-HK';
+        let context = "";
+
+        if (lang === 'zh-HK') {
+            context = "CRITICAL: Respond STRICTLY in Cantonese (廣東話/繁體中文), using warm, friendly, natural colloquial speech suitable for a child. Keep it under 15 words. Avoid any introductory or closing remarks (e.g., do NOT say 'Okay, here is your response:'). Just output the spoken words directly. Avoid using markdown formatting or asterisks.";
+        } else if (lang === 'zh-CN') {
+            context = "CRITICAL: Respond STRICTLY in Mandarin (普通话/简体中文), using warm, friendly, natural colloquial speech suitable for a child. Keep it under 15 words. Avoid any introductory or closing remarks. Just output the spoken words directly. Avoid using markdown formatting or asterisks.";
+        } else {
+            context = "CRITICAL: Respond STRICTLY in English, using a warm, friendly, encouraging tone suitable for a child. Keep it under 15 words. Avoid any introductory or closing remarks. Just output the spoken words directly. Avoid using markdown formatting or asterisks.";
+        }
+
+        let scenario = "";
+        if (scenarioKey === 'greeting') {
+            scenario = "Scenario: We are starting a new eye tracking rehabilitation exercise session. Greet the child and say let's do our best today.";
+        } else if (scenarioKey === 'tremor') {
+            scenario = "Scenario: The child's eye/neck tracking is slightly jittery. Explain that we detected a little wobble and have turned on our special 'steady filter' (tremor stabilizer) to help them aim better.";
+        } else if (scenarioKey === 'struggling') {
+            scenario = "Scenario: The child missed 2 targets in a row. Encourage them and mention that we enlarged the targets to 1.6x size to make them easier to hit.";
+        } else if (scenarioKey === 'success') {
+            scenario = "Scenario: The child got 6 hits in a row with perfect focus. Praise their amazing focus and mention we are setting the targets back to standard size for a fun challenge.";
+        }
+
+        return `${context}\n\n${scenario}`;
+    }
+
     _getAimAssistBuffer() {
         const assist = this.settings.aimAssist || 'normal';
         if (assist === 'high') return 55;
@@ -2555,6 +2969,22 @@ class Game {
         // Calibration guide toggle
         const calGuideEl = document.getElementById('showCalibrationGuideCheckbox');
         if (calGuideEl) calGuideEl.checked = this.settings.showCalibrationGuide !== false;
+
+        const aiCoachEl = document.getElementById('aiCoachCheckbox');
+        if (aiCoachEl) {
+            aiCoachEl.checked = this.settings.aiCoach !== undefined ? this.settings.aiCoach : true;
+            const personalizationGroup = document.getElementById('aiPersonalizationGroup');
+            if (personalizationGroup) {
+                personalizationGroup.style.display = aiCoachEl.checked ? 'block' : 'none';
+            }
+        }
+
+        const aiSystemPromptEl = document.getElementById('aiSystemPrompt');
+        if (aiSystemPromptEl) {
+            aiSystemPromptEl.value = this.settings.aiSystemPrompt !== undefined ? this.settings.aiSystemPrompt : (this._defaultSettings().aiSystemPrompt || '');
+        }
+
+        this._checkPromptApiCapability();
 
         await this._refreshCameraList();
         this._showScreen('settingsScreen');
@@ -2808,6 +3238,13 @@ class Game {
             }
         });
 
+        document.getElementById('aiCoachCheckbox')?.addEventListener('change', (e) => {
+            const personalizationGroup = document.getElementById('aiPersonalizationGroup');
+            if (personalizationGroup) {
+                personalizationGroup.style.display = e.target.checked ? 'block' : 'none';
+            }
+        });
+
         document.getElementById('settingsSaveBtn')?.addEventListener('click', async () => {
             const invertXEl = document.getElementById('invertXCheckbox');
             const invertYEl = document.getElementById('invertYCheckbox');
@@ -2823,7 +3260,9 @@ class Game {
             const voiceGuidanceEl = document.getElementById('voiceGuidanceCheckbox');
             const voiceLanguageEl = document.getElementById('voiceLanguageSelect');
             const calibrationPointsEl = document.getElementById('calibrationPointsSelect');
-            if (!invertXEl || !invertYEl || !cameraSelectEl || !trackingModeEl || !aimAssistEl || !triggerModeEl || !gazeSmoothingEl || !safeAreaMarginEl || !targetScaleEl || !gazeSensitivityEl || !targetThemeEl || !voiceGuidanceEl || !calibrationPointsEl || !voiceLanguageEl) {
+            const aiCoachEl = document.getElementById('aiCoachCheckbox');
+            const aiSystemPromptEl = document.getElementById('aiSystemPrompt');
+            if (!invertXEl || !invertYEl || !cameraSelectEl || !trackingModeEl || !aimAssistEl || !triggerModeEl || !gazeSmoothingEl || !safeAreaMarginEl || !targetScaleEl || !gazeSensitivityEl || !targetThemeEl || !voiceGuidanceEl || !calibrationPointsEl || !voiceLanguageEl || !aiCoachEl || !aiSystemPromptEl) {
                 this._showError('Settings controls unavailable.', 'Some settings controls are missing from the page. Please reload and try again.');
                 return;
             }
@@ -2842,6 +3281,8 @@ class Game {
             const voiceGuidance = voiceGuidanceEl.checked;
             const voiceLanguage = voiceLanguageEl.value;
             const calibrationPoints = calibrationPointsEl.value;
+            const aiCoach = aiCoachEl.checked;
+            const aiSystemPrompt = aiSystemPromptEl.value;
 
             // New settings
             const gazeDwellSlider = document.getElementById('gazeDwellSlider');
@@ -2876,6 +3317,8 @@ class Game {
                 this.settings.voiceGuidance = voiceGuidance;
                 this.settings.voiceLanguage = voiceLanguage;
                 this.settings.calibrationPoints = calibrationPoints;
+                this.settings.aiCoach = aiCoach;
+                this.settings.aiSystemPrompt = aiSystemPrompt;
                 this.settings.cameraDeviceId = this.currentCameraDeviceId || cameraId || '';
                 // New settings
                 this.settings.gazeDwellMs = gazeDwellMs;
@@ -2964,6 +3407,12 @@ class Game {
                 const url = URL.createObjectURL(blob);
                 this._customImages.push({ id, name: file.name, url });
                 _getCachedImage(url); // pre-load
+            }
+            if (this._customImages.length > 0) {
+                this.settings.targetMode = 'custom';
+                const useCustomTargetsEl = document.getElementById('useCustomTargetsCheckbox');
+                if (useCustomTargetsEl) useCustomTargetsEl.checked = true;
+                this._saveSettings();
             }
             this._refreshImagePreviews();
             e.target.value = '';
@@ -3118,6 +3567,7 @@ class Game {
                     this.settings.targetMode = 'default';
                     const el = document.getElementById('useCustomTargetsCheckbox');
                     if (el) el.checked = false;
+                    this._saveSettings();
                 }
                 this._refreshImagePreviews();
             });

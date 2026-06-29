@@ -183,6 +183,15 @@
                     <label for="invertYCheckbox"><input type="checkbox" id="invertYCheckbox"> Invert up / down</label>
                     <label for="voiceGuidanceCheckbox" style="margin-top: 10px; display: block;"><input type="checkbox" id="voiceGuidanceCheckbox" checked> Voice Guide & Milestones (Speech Assist)</label>
                     <p class="settings-hint">Uses browser speech synthesis to read instructions during calibration and celebrate milestones (e.g. "Great job!").</p>
+                    <label for="aiCoachCheckbox" style="margin-top: 10px; display: block;"><input type="checkbox" id="aiCoachCheckbox" checked> AI Adaptive Therapist & Gaze Copilot (Aria)</label>
+                    <p class="settings-hint">Enables "Aria", a real-time AI assistant that monitors gaze metrics (e.g. jitter, miss ratios) and automatically adapts target sizes, smoothing, and speeds to prevent pediatric fatigue.</p>
+                    
+                    <div id="aiPersonalizationGroup" style="margin-top: 12px; border-top: 1px dashed rgba(0, 229, 255, 0.2); padding-top: 12px;">
+                        <label for="aiSystemPrompt" style="font-size: 0.82rem; color: #00e5ff;">Aria Personalization Prompt (AI Therapist Persona)</label>
+                        <textarea id="aiSystemPrompt" rows="3" style="width: 100%; min-height: 55px; background: rgba(0,0,0,0.45); border: 1px solid rgba(0,229,255,0.2); border-radius: 6px; color: #fff; padding: 8px; font-family: inherit; font-size: 0.78rem; resize: vertical; margin-top: 4px; box-sizing: border-box;" placeholder="e.g. Speak to Timmy in a cheerful, encouraging voice. Use short, motivating sentences."></textarea>
+                        <p class="settings-hint" style="margin-bottom: 2px;">Tailor Aria's personality (e.g., mention the child's name, favorite animals, or therapy goals).</p>
+                        <span id="promptApiStatus" style="font-size: 0.75rem; font-weight: bold; color: var(--yellow); display: block; margin-top: 4px;">Checking Chrome Built-in AI (Prompt API)...</span>
+                    </div>
                 </div>
                 <div class="settings-group">
                     <label for="voiceLanguageSelect">Speech Language (語音語言)</label>
@@ -323,6 +332,30 @@
         <span id="timerDisplay"    class="hud-value">Time: 60</span>
         <span id="accuracyDisplay" class="hud-value">Acc: 100%</span>
         <span id="eyeStatus" class="hud-value">Eye: calibrating…</span>
+    </div>
+</div>
+
+<!-- AI Assistant Panel (Aria) -->
+<div id="aiAssistantPanel" class="ai-panel">
+    <div class="ai-header">
+        <div class="ai-avatar-container">
+            <span class="ai-avatar-core"></span>
+            <span class="ai-avatar-ring"></span>
+        </div>
+        <span class="ai-title">Aria · AI Therapist</span>
+    </div>
+    <div class="ai-body">
+        <p id="aiMessage">Ready to help you practice! Follow the targets with your eyes.</p>
+    </div>
+    <div class="ai-stats">
+        <div class="ai-stat-item">
+            <span class="ai-stat-lbl">Adaptive Size</span>
+            <span id="aiDifficulty" class="ai-stat-val">1.0x</span>
+        </div>
+        <div class="ai-stat-item" style="border-left: 1px solid rgba(255,255,255,0.15);">
+            <span class="ai-stat-lbl">Gaze State</span>
+            <span id="aiFocus" class="ai-stat-val">Normal</span>
+        </div>
     </div>
 </div>
 
